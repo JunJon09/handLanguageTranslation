@@ -1,3 +1,14 @@
 *.mp4
 *.MOV
 *.DS_Store
+*.pyc
+/data/
+/csv/
+/hdf5/
+/relation_asl_sign/*
+/movie_to_csv/*
+/csv_to_hdf5/*
+!/relation_asl_sign/src
+!/movie_to_csv/src
+!/csv_to_hdf5/src
+
