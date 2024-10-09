@@ -3,7 +3,8 @@ services:
   python_app:
     build: ./docker
     volumes:
-      - ./data/:/src/data
+      - ./hdf5/:/src/hdf5/
+      - ./IsolatedSignLanguage/:/src/IsolatedSignLanguage/
     container_name: python_handlangage
     stdin_open: true
 
