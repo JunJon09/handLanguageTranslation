@@ -1,4 +1,4 @@
-# handLangageTranslation
+# handLanguageTranslation
 手話翻訳の研究
 
 ## リポジトリの内容

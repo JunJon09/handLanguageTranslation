@@ -9,9 +9,10 @@ from torchvision.transforms import Compose
 import isolate_handlanguage_transformer.features as features
 import copy
 import torch
+from typing import Tuple, List
 
-def read_dataset(input_dir: Path =  "../../hdf5/nhk/"):
-    # ---- REPLACE THIS WITH YOUR OWN CODE ----
+
+def read_dataset(input_dir: Path =  "../../hdf5/nhk/") -> Tuple[List, List, List]:
     dataset_dir = Path(input_dir)
     files = list(dataset_dir.iterdir())
     hdf5_files = [fin for fin in files if ".hdf5" in fin.name]
@@ -40,12 +41,12 @@ class HDF5Dataset(Dataset):
             swap = 1 if "_swap" in fin.name else 0
             # filename should be [pid].hdf5 or [pid]_swap.hdf5
             pid = int(fin.stem.split("_")[0])
-            with h5py.File(fin.resolve(), "r") as fread:
-                keys = list(fread.keys())
+            with h5py.File(fin.resolve(), "r") as f:
+                keys = list(f.keys())
                 for key in keys:
                     if load_into_ram:
-                        data = {"feature": fread[key]["feature"][:],
-                                "token": fread[key]["token"][:]}
+                        data = {"feature": f[key]["feature"][:],
+                                "token": f[key]["token"][:]}
                         if self.convert_to_channel_first:
                             feature = data["feature"]
                             # `[T, J, C] -> [C, T, J]`
@@ -93,9 +94,9 @@ class HDF5Dataset(Dataset):
         if info["data"]:
             data = info["data"]
         else:
-            with h5py.File(info["file"], "r") as fread:
-                data = {"feature": fread[info["data_key"]]["feature"][:],
-                        "token": fread[info["data_key"]]["token"][:]}
+            with h5py.File(info["file"], "r") as f:
+                data = {"feature": f[info["data_key"]]["feature"][:],
+                        "token": f[info["data_key"]]["token"][:]}
         _data = copy.deepcopy(data)
         if self.load_into_ram is False:
             if self.convert_to_channel_first:
@@ -157,3 +158,31 @@ def merge_padded_batch(batch,
         "feature_pad_mask": feature_pad_mask,
         "token_pad_mask": token_pad_mask}
     return retval
+
+def merge(sequences, merged_shape, padding_val=0):
+    merged = torch.full(tuple(merged_shape),
+                        padding_val,
+                        dtype=sequences[0].dtype)
+    if len(merged_shape) == 2:
+        for i, seq in enumerate(sequences):
+            merged[i,
+                   :seq.shape[0]] = seq
+    if len(merged_shape) == 3:
+        for i, seq in enumerate(sequences):
+            merged[i,
+                   :seq.shape[0],
+                   :seq.shape[1]] = seq
+    if len(merged_shape) == 4:
+        for i, seq in enumerate(sequences):
+            merged[i,
+                   :seq.shape[0],
+                   :seq.shape[1],
+                   :seq.shape[2]] = seq
+    if len(merged_shape) == 5:
+        for i, seq in enumerate(sequences):
+            merged[i,
+                   :seq.shape[0],
+                   :seq.shape[1],
+                   :seq.shape[2],
+                   :seq.shape[3]] = seq
+    return merged

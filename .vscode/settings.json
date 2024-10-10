@@ -2,6 +2,23 @@
     "cSpell.words": [
         "pids",
         "upids",
-        "handlanguage"
+        "handlanguage",
+        "dtype",
+        "fullbody",
+        "REYE",
+        "LEYE",
+        "LHAND",
+        "RHAND",
+        "arange",
+        "framewise",
+        "tmask",
+        "keepdims",
+        "linalg",
+        "subval",
+        "astype",
+        "ndarray",
+        "totensor",
+        "tlen",
+        "repnan",
     ]
 }

@@ -44,24 +44,8 @@ class ReplaceNan():
 
 def get_fullbody_landmarks():
     # Extract landmarks.
-    USE_LIP = [0, 13, 14, 17, 37, 39, 40, 61, 78, 80,
-            81, 82, 84, 87, 88, 91, 95, 146, 178, 181,
-            185, 191, 267, 269, 270, 291, 308, 310, 311, 312,
-            314, 317, 318, 321, 324, 375, 402, 405, 409, 415]
-    USE_NOSE = [1, 2, 98, 327]
-    USE_REYE = [33, 7, 163, 144, 145, 153, 154, 155, 133,
-                246, 161, 160, 159, 158, 157, 173]
-    USE_LEYE = [263, 249, 390, 373, 374, 380, 381, 382, 362,
-                466, 388, 387, 386, 385, 384, 398]
-    USE_FACE = np.sort(np.unique(USE_LIP + USE_NOSE + USE_REYE + USE_LEYE))
-
-    USE_LHAND = np.arange(468, 468+21)
-    # Use hands only.
-    USE_POSE = np.array([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]) + 468 + 21
-    # USE_POSE = np.array([15, 16, 17, 18, 19, 20, 21, 22]) + 468 + 21
-    USE_RHAND = np.arange(468+21+33, 468+21+33+21)
-
-    use_landmarks = np.concatenate([USE_FACE, USE_LHAND, USE_POSE, USE_RHAND])
+    USE_FACE = np.sort(np.unique(config.USE_LIP + config.USE_NOSE + config.USE_REYE + config.USE_LEYE))
+    use_landmarks = np.concatenate([USE_FACE, config.USE_LHAND, config.USE_POSE, config.USE_RHAND])
     use_landmarks_filtered = np.arange(len(use_landmarks))
     return use_landmarks_filtered, use_landmarks
 
