@@ -6,6 +6,17 @@
 
 Transformerを使用した孤立手話単語認識
 
+## 実行コマンド
+train.pyの場合
+以下のディレクトリで実行して下さい
+```bash
+/src/IsolatedSignLanguage/transformer
+```
+
+```bash
+python -m isolate_handlanguage_transformer.modeling.train
+```
+
 ## Project Organization
 
 ```
