@@ -14,8 +14,9 @@ def loss_plot(val_losses_default):
     plt.ylabel("Loss")
     plt.ylim([0.0, 2.5])
     plt.legend()
-    save_path = os.path.join(save_dir, "transformer_loss.pdf")
-    plt.savefig(save_path, format="pdf", facecolor='w')
+    plt.grid(True)
+    save_path = os.path.join(save_dir, "transformer_loss.png")
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
 
 def test_data_plot(test_accs_default):
@@ -27,6 +28,6 @@ def test_data_plot(test_accs_default):
     plt.ylabel("Accuracy")
     plt.ylim([0.0, 100.0])
     plt.legend()
-    save_path = os.path.join(save_dir, "transformer_test_accuracy.pdf")
-    plt.savefig(save_path, format="pdf", facecolor='w')
+    save_path = os.path.join(save_dir, "transformer_test_accuracy.png")
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()

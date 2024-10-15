@@ -10,11 +10,11 @@ Transformerを使用した孤立手話単語認識
 train.pyの場合
 以下のディレクトリで実行して下さい
 ```bash
-/src/IsolatedSignLanguage/transformer
+/src/IsolatedSignLanguage
 ```
 
 ```bash
-python -m isolate_handlanguage_transformer.modeling.train
+python -m transformer.isolate_handlanguage_transformer.modeling.train
 ```
 
 ## Project Organization
@@ -23,22 +23,11 @@ python -m isolate_handlanguage_transformer.modeling.train
 ├── LICENSE            <- Open-source license if one is chosen
 ├── Makefile           <- Makefile with convenience commands like `make data` or `make train`
 ├── README.md          <- The top-level README for developers using this project.
-├── data
-│   ├── external       <- Data from third party sources.
-│   ├── interim        <- Intermediate data that has been transformed.
-│   ├── processed      <- The final, canonical data sets for modeling.
-│   └── raw            <- The original, immutable data dump.
-│
-├── docs               <- A default mkdocs project; see www.mkdocs.org for details
-│
 ├── models             <- Trained and serialized models, model predictions, or model summaries
 │
 ├── notebooks          <- Jupyter notebooks. Naming convention is a number (for ordering),
 │                         the creator's initials, and a short `-` delimited description, e.g.
 │                         `1.0-jqp-initial-data-exploration`.
-│
-├── pyproject.toml     <- Project configuration file with package metadata for 
-│                         isolate_handlangage_transformer and configuration for tools like black
 │
 ├── references         <- Data dictionaries, manuals, and all other explanatory materials.
 │
@@ -50,9 +39,9 @@ python -m isolate_handlanguage_transformer.modeling.train
 │
 ├── setup.cfg          <- Configuration file for flake8
 │
-└── isolate_handlangage_transformer   <- Source code for use in this project.
+└── isolate_handlanguage_transformer   <- Source code for use in this project.
     │
-    ├── __init__.py             <- Makes isolate_handlangage_transformer a Python module
+    ├── __init__.py             <- Makes isolate_handlanguage_transformer a Python module
     │
     ├── config.py               <- Store useful variables and configuration
     │
@@ -67,6 +56,5 @@ python -m isolate_handlanguage_transformer.modeling.train
     │
     └── plots.py                <- Code to create visualizations
 ```
-
 --------
 

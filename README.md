@@ -12,12 +12,14 @@ docker compose up
 
 また、認識の実験を行いたい場合、hdf5を自分で作成して下さい
 
+もし実験的にすぐ使い方は、[リンク](https://drive.google.com/file/d/1mQGin0n8W86VYyUIcAdARdt1zrZ4PWDo/view?usp=sharing)からファイルをダウンロードして以下のようなファイル構成にして動かして下さい。各ファイルに詳しい実行コマンドが書いてあります。
+
 ## ファイル構成
 <pre>
 handLanguageTranslation/
 ├── IsolatedSignLanguage #孤立手話単語認識関連
 │   ├── cnn
-│   ├── comformer
+│   ├── conformer
 │   └── transformer
 ├── csv　csvの格納場所
 │   └── nhk
@@ -28,7 +30,6 @@ handLanguageTranslation/
 │   ├── asl-signs
 │   ├── dataset_top10
 │   ├── gislr_dataset_top10.zip
-│   ├── hoge
 │   ├── nhk
 │   └── 東海支部DB
 ├── docker
@@ -37,10 +38,20 @@ handLanguageTranslation/
 ├── docker-compose.yml
 ├── README.md
 ├── hdf5 hdf5ファイルの格納場所
-│   ├── nhk
-│   └── nhk.zip
+│   └── nhk
 ├── movie_to_csv 動画からcsvに変換するコード
 │   └── src
 └── relation_asl_sign　aslのデータ関連
     └── src
 </pre>
+
+## 実験結果
+### Transformerの結果
+
+Lossの結果
+![](IsolatedSignLanguage/transformer/reports/figures/transformer_loss.png)
+
+Test結果
+![](IsolatedSignLanguage/transformer/reports/figures/transformer_test_accuracy.png)
+
+最終結果が85.3%
