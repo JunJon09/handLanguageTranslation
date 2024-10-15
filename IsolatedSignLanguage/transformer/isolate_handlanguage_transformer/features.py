@@ -1,5 +1,5 @@
 from typing import Dict, Any
-import isolate_handlanguage_transformer.config as config
+import transformer.isolate_handlanguage_transformer.config as config
 import torch
 import numpy as np
 
@@ -38,12 +38,12 @@ class ReplaceNan():
                  data: Dict[str, Any]) -> Dict[str, Any]:
         feature = data["feature"]
         feature[np.isnan(feature)] = self.replace_val
+        #True=Nanの位置に0.0を代入
         data["feature"] = feature
         return data
 
 
 def get_fullbody_landmarks():
-    # Extract landmarks.
     USE_FACE = np.sort(np.unique(config.USE_LIP + config.USE_NOSE + config.USE_REYE + config.USE_LEYE))
     use_landmarks = np.concatenate([USE_FACE, config.USE_LHAND, config.USE_POSE, config.USE_RHAND])
     use_landmarks_filtered = np.arange(len(use_landmarks))
@@ -103,7 +103,7 @@ class PartsBasedNormalization():
         self.rhand_unit2 = rhand_unit2
 
     def _gen_tmask(self, feature):
-        tmask = feature == 0.0
+        tmask = np.isclose(feature, 0.0)
         tmask = np.all(tmask, axis=(0, 2))
         tmask = np.logical_not(tmask.reshape([1, -1, 1]))
         return tmask
@@ -148,14 +148,13 @@ class PartsBasedNormalization():
                 unit = 1.0
             unit = 1.0 if np.isnan(unit).any() else unit
         # Finally, clip extreme values.
-        unit = np.clip(unit, a_min=unit_range[0], a_max=unit_range[1])
+        unit = np.clip(unit, a_min=unit_range[0], a_max=unit_range[1]) #指定した最小値と最大値の範囲内にしている
         return unit
 
-    def _normalize(self, feature, origin_lm, unit_lm1, unit_lm2,
-                   unit_range=[1.0e-3, 5.0]):
-        tmask = self._gen_tmask(feature)
-        origin = self._calc_origin(feature, origin_lm)
-        unit = self._calc_unit(feature, unit_lm1, unit_lm2, unit_range)
+    def _normalize(self, feature, origin_lm, unit_lm1, unit_lm2, unit_range=[1.0e-3, 5.0]):
+        tmask = self._gen_tmask(feature) #欠損値の確認
+        origin = self._calc_origin(feature, origin_lm) #基準とした相対座標を取得
+        unit = self._calc_unit(feature, unit_lm1, unit_lm2, unit_range) #基準として割合を算出している。
 
         _feature = feature - origin
         _feature = _feature / unit

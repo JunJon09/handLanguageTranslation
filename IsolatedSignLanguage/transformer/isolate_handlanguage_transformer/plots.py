@@ -1,29 +1,32 @@
-from pathlib import Path
+import matplotlib.pyplot as plt
+import numpy as np
+import os
 
-import typer
-from loguru import logger
-from tqdm import tqdm
+save_dir = "transformer/reports/figures"
 
-from isolate_handlanguage_transformer.config import FIGURES_DIR, PROCESSED_DATA_DIR
+def loss_plot(val_losses_default):
 
-app = typer.Typer()
+    plt.grid(axis="y", linestyle="dotted", color="k")
 
+    xs = np.arange(1, len(val_losses_default)+1)
+    plt.plot(xs, val_losses_default, label="Default", marker=".")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.ylim([0.0, 2.5])
+    plt.legend()
+    save_path = os.path.join(save_dir, "transformer_loss.pdf")
+    plt.savefig(save_path, format="pdf", facecolor='w')
+    plt.close()
 
-@app.command()
-def main(
-    # ---- REPLACE DEFAULT PATHS AS APPROPRIATE ----
-    input_path: Path = PROCESSED_DATA_DIR / "dataset.csv",
-    output_path: Path = FIGURES_DIR / "plot.png",
-    # -----------------------------------------
-):
-    # ---- REPLACE THIS WITH YOUR OWN CODE ----
-    logger.info("Generating plot from data...")
-    for i in tqdm(range(10), total=10):
-        if i == 5:
-            logger.info("Something happened for iteration 5.")
-    logger.success("Plot generation complete.")
-    # -----------------------------------------
+def test_data_plot(test_accs_default):
+    plt.grid(axis="y", linestyle="dotted", color="k")
 
-
-if __name__ == "__main__":
-    app()
+    xs = np.arange(1, len(test_accs_default)+1)
+    plt.plot(xs, test_accs_default, label="Default", marker=".")
+    plt.xlabel("Epochs")
+    plt.ylabel("Accuracy")
+    plt.ylim([0.0, 100.0])
+    plt.legend()
+    save_path = os.path.join(save_dir, "transformer_test_accuracy.pdf")
+    plt.savefig(save_path, format="pdf", facecolor='w')
+    plt.close()

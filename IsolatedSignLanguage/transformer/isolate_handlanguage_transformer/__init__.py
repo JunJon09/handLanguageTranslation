@@ -1,1 +1,1 @@
-from isolate_handlanguage_transformer import config  # noqa: F401
+from transformer.isolate_handlanguage_transformer import config  # noqa: F401

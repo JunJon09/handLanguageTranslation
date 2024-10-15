@@ -1,3 +1,5 @@
 h5py
 torch
 torchvision
+pydantic
+matplotlib

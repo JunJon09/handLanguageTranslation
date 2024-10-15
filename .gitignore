@@ -2,6 +2,7 @@
 *.MOV
 *.DS_Store
 *.pyc
+*pth
 /data/
 /csv/
 /hdf5/

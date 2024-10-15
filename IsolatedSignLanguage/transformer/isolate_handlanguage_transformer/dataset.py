@@ -6,13 +6,14 @@ from torch.utils.data import (
     Dataset)
 import numpy as np
 from torchvision.transforms import Compose
-import isolate_handlanguage_transformer.features as features
+import transformer.isolate_handlanguage_transformer.features as features
 import copy
 import torch
 from typing import Tuple, List
+import json
 
 
-def read_dataset(input_dir: Path =  "../../hdf5/nhk/") -> Tuple[List, List, List]:
+def read_dataset(input_dir: Path =  "../hdf5/nhk/") -> Tuple[List, List, List, int]:
     dataset_dir = Path(input_dir)
     files = list(dataset_dir.iterdir())
     hdf5_files = [fin for fin in files if ".hdf5" in fin.name]
@@ -22,8 +23,14 @@ def read_dataset(input_dir: Path =  "../../hdf5/nhk/") -> Tuple[List, List, List
     train_hdf5files = [fin for fin in hdf5_files if str(test_file) not in fin.name]
     val_hdf5files = [fin for fin in hdf5_files if str(val_file) in fin.name]
     test_hdf5files = [fin for fin in hdf5_files if str(test_file) in fin.name]
+    dictionary = [fin for fin in files if ".json" in fin.name][0]
+    with open(dictionary, "r") as f:
+        key2token = json.load(f)
 
-    return train_hdf5files, val_hdf5files, test_hdf5files
+    VOCAB = len(key2token)
+
+
+    return train_hdf5files, val_hdf5files, test_hdf5files, VOCAB
 
 class HDF5Dataset(Dataset):
     def __init__(self,
@@ -119,13 +126,13 @@ def merge_padded_batch(batch,
                        token_padding_val=0):
     feature_batch = [sample["feature"] for sample in batch]
     token_batch = [sample["token"] for sample in batch]
-
     # ==========================================================
     # Merge feature.
     # ==========================================================
     # `[B, C, T, J]`
     merged_shape = [len(batch), *feature_shape]
     # Use maximum frame length in a batch as padded length.
+
     if merged_shape[2] == -1:
         tlen = max([feature.shape[1] for feature in feature_batch])
         merged_shape[2] = tlen
