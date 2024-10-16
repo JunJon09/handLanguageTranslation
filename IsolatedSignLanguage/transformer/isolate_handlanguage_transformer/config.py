@@ -38,3 +38,9 @@ USE_LHAND = np.arange(468, 468+21)
 USE_POSE = np.array([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]) + 468 + 21
 # USE_POSE = np.array([15, 16, 17, 18, 19, 20, 21, 22]) + 468 + 21
 USE_RHAND = np.arange(468+21+33, 468+21+33+21)
+
+#plots
+plot_save_dir = "transformer/reports/figures"
+plot_loss_save_path = "transformer_loss.png"
+plot_accuracy_save_path = "transformer_test_accuracy.png"
+

@@ -1,8 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import transformer.isolate_handlanguage_transformer.config as config
 
-save_dir = "transformer/reports/figures"
 
 def loss_plot(val_losses_default):
 
@@ -15,7 +15,7 @@ def loss_plot(val_losses_default):
     plt.ylim([0.0, 2.5])
     plt.legend()
     plt.grid(True)
-    save_path = os.path.join(save_dir, "transformer_loss.png")
+    save_path = os.path.join(config.plot_save_dir, config.plot_loss_save_path)
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
 
@@ -28,6 +28,6 @@ def test_data_plot(test_accs_default):
     plt.ylabel("Accuracy")
     plt.ylim([0.0, 100.0])
     plt.legend()
-    save_path = os.path.join(save_dir, "transformer_test_accuracy.png")
+    save_path = os.path.join(config.plot_save_dir, config.plot_accuracy_save_path)
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
