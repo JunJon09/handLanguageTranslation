@@ -36,6 +36,9 @@ handLanguageTranslation/
 │   ├── Dockerfile
 │   └── requirements.txt
 ├── docker-compose.yml
+├── Interpolation #MediaPipeの補間方法
+│   ├── linear_interpolation #線形補間
+│   └── kalman_filter #カルマンフィルタ
 ├── README.md
 ├── hdf5 hdf5ファイルの格納場所
 │   └── nhk

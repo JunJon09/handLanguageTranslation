@@ -19,7 +19,6 @@ def get_index_csv_files():
 def load_relevant_data_subset(pq_path):
     names = ['x', 'y', 'z']
     data = pd.read_csv(pq_path, usecols=names)
-    print(data)
     n_frames = int(len(data) / ROWS_PER_FRAME)
     data = data.values.reshape(n_frames, ROWS_PER_FRAME, len(names))
     return data.astype(np.float32)
@@ -31,6 +30,7 @@ def landmarks_csv_to_hdf5(track_info:list , output_dir: str, dictionary: dict, c
     upids = track_info['person_number'].unique()
     root_dir = "../../"
     for upid in upids:
+        print(upid)
         temp_info = track_info[track_info["person_number"] == upid]
         out_path = os.path.join(output_dir, f"{upid}.hdf5")
         print(f"person_number={upid} のデータを '{out_path}' に保存します。")
@@ -43,12 +43,13 @@ def landmarks_csv_to_hdf5(track_info:list , output_dir: str, dictionary: dict, c
                 token = np.array([dictionary[info[3]]])
                 assert pid == upid, f"{pid}:{upid}"
                 track_path = "../.." + path
-                print(track_path)
+               
                 if not os.path.exists(track_path):
                     continue
 
                 track = load_relevant_data_subset(track_path)
-                print(track)
+                if track_path == "../../csv/nhk/America/6000.csv":
+                    print(track)
                 # `[T, J, C] -> [C, T, J]`
                 if convert_to_channel_first:
                     track = track.transpose([2, 0, 1])
