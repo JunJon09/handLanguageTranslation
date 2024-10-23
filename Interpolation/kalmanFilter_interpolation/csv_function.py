@@ -1,4 +1,4 @@
-import liner_interpolation.config as config
+import kalmanFilter_interpolation.config as config
 import pandas as pd
 import os
 

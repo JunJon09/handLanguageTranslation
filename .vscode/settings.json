@@ -34,5 +34,6 @@
         "argmax",
         "unsqueeze",
         "gislr",
+        "kalman",
     ]
 }

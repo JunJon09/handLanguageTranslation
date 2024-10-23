@@ -1,5 +1,5 @@
-import Interpolation.liner_interpolation.config as config
-import Interpolation.liner_interpolation.csv_function as csv_function
+import liner_interpolation.config as config
+import liner_interpolation.csv_function as csv_function
 import pandas as pd
 import os
 
@@ -12,6 +12,7 @@ def interpolate_landmarks(group):
     
     # 線形補間を適用
     group[['x', 'y', 'z']] = group[['x', 'y', 'z']].interpolate(method='linear', limit_direction='both')
+    print(group)
     
     return group
 
@@ -19,7 +20,7 @@ if __name__ == "__main__":
     files = csv_function.get_csv()
     index_records = []
     for column_name, row in files.iterrows():
-        file_path = "./" + row['path']
+        file_path = ".." + row['path']
         df = pd.read_csv(file_path)
         df['frame_index'] = pd.to_numeric(df['frame_index'], errors='coerce')
 
