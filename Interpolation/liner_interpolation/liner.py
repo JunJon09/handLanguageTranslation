@@ -37,7 +37,7 @@ if __name__ == "__main__":
         output_csv_dir = config.output_csv_directory_path + str(row['sign'])
         os.makedirs(output_csv_dir, exist_ok=True)
 
-        output_csv_path = output_csv_dir +  "/" + str(row['file_name']) + ".csv"
+        output_csv_path = output_csv_dir +  "/" + str(row['file_name'])
         df_interpolated.to_csv(output_csv_path, index=False)
         print(f"補間したデータを {output_csv_path} に保存しました。")
 

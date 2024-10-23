@@ -1,18 +1,18 @@
 import os
-import glob
 import pandas as pd
 import h5py
 import numpy as np
+import config
+import lsa64_relation
 
 ROWS_PER_FRAME = 478 + 33 + 21 + 21  # Number of landmarks per frame.
 
 
 def get_index_csv_files():
-    file_path = "../../csv/nhk/index.csv"
     try:
-       track_info = pd.read_csv(file_path)
+       track_info = pd.read_csv(config.index_file_path)
     except FileNotFoundError:
-        print(f"ディレクトリ '{file_path}' が存在しません。")
+        print(f"ディレクトリ '{config.index_file_path}' が存在しません。")
     return track_info
 
 
@@ -32,15 +32,23 @@ def landmarks_csv_to_hdf5(track_info:list , output_dir: str, dictionary: dict, c
     for upid in upids:
         print(upid)
         temp_info = track_info[track_info["person_number"] == upid]
-        out_path = os.path.join(output_dir, f"{upid}.hdf5")
+        out_path = os.path.join(output_dir, f"{str(upid).zfill(3)}.hdf5")
         print(f"person_number={upid} のデータを '{out_path}' に保存します。")
-
+        if not os.path.exists(out_path):
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+                print(f"フォルダ '{output_dir}' を作成しました。")
+            except Exception as e:
+                print(f"フォルダ '{output_dir}' の作成中にエラーが発生しました: {e}")
+                return
         with h5py.File(out_path, "w") as f:
             for info in temp_info.itertuples(index=False):
                 path = info[0]
                 pid = info[1]
                 sid = info[2]
-                token = np.array([dictionary[info[3]]])
+                sign = lsa64_relation.lsa64_nan_to_none(info[3])
+                token = np.array([dictionary[sign]])
+                
                 assert pid == upid, f"{pid}:{upid}"
                 track_path = "../.." + path
                
@@ -48,8 +56,6 @@ def landmarks_csv_to_hdf5(track_info:list , output_dir: str, dictionary: dict, c
                     continue
 
                 track = load_relevant_data_subset(track_path)
-                if track_path == "../../csv/nhk/America/6000.csv":
-                    print(track)
                 # `[T, J, C] -> [C, T, J]`
                 if convert_to_channel_first:
                     track = track.transpose([2, 0, 1])
@@ -63,27 +69,4 @@ def landmarks_csv_to_hdf5(track_info:list , output_dir: str, dictionary: dict, c
 
 if __name__ == "__main__":
     track_info = get_index_csv_files()
-    output_dir = "../../hdf5/nhk/"
-    dictionary = {
-        "America": 0,
-        "china": 1,
-        "commitee": 2,
-        "confirm": 3,
-        "corona": 4,
-        "emergency": 5,
-        "expand": 6,
-        "gorvement": 7,
-        "infection": 8,
-        "jpan": 9,
-        "measure": 10,
-        "minister": 11,
-        "osaka": 12,
-        "person": 13,
-        "policy": 14,
-        "prezen": 15,
-        "state": 16,
-        "today": 17,
-        "tokyo": 18,
-        "vaccination": 19,
-    }
-    landmarks_csv_to_hdf5(track_info, output_dir=output_dir, dictionary=dictionary, convert_to_channel_first=True)
+    landmarks_csv_to_hdf5(track_info, output_dir=config.out_dir, dictionary=lsa64_relation.lsa64_key_value, convert_to_channel_first=True)

@@ -98,6 +98,7 @@ if __name__ == "__main__":
     movie_files_list = get_movie_files()
     MediaPipeClass = mediapipe_relation.MediaPipeClass()
     index_records = []
+    
 
     for i, word_directory in enumerate(movie_files_list):
         for j, file in enumerate(word_directory):
@@ -118,5 +119,5 @@ if __name__ == "__main__":
                 'sign': folder_name
             }
             index_records.append(index_record)
-    index_csv_path = "../../csv/nhk/index.csv"
+    index_csv_path = "../../csv/lsa64/index.csv"
     create_index_csv(index_records, index_csv_path)

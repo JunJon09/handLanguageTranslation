@@ -113,11 +113,7 @@ class PartsBasedNormalization():
             # 欠損値のインデックスを取得
             # ここでは axis=1 に沿ってチェックしているため、対象となるインデックスは axis=1 のインデックス
             missing_indices = np.where(~tmask.reshape(-1))[0]
-            print(tmask)
             
-            # インデックスを表示（print）
-            print(f"欠損値が検出されました。欠損しているインデックス: {missing_indices.tolist()}")
-
         return tmask
 
     def _calc_origin(self, feature, origin_lm):

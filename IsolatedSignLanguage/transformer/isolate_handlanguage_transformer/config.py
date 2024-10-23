@@ -18,6 +18,11 @@ MODELS_DIR = PROJ_ROOT / "models"
 REPORTS_DIR = PROJ_ROOT / "reports"
 FIGURES_DIR = REPORTS_DIR / "figures"
 
+#dataset
+read_dataset_dir = "../hdf5/lsa64_liner/"
+test_number = "001"
+val_number = "002"
+
 #train
 use_features  = ["x", "y"]
 batch_size = 32
@@ -41,6 +46,6 @@ USE_RHAND = np.arange(468+21+33, 468+21+33+21)
 
 #plots
 plot_save_dir = "transformer/reports/figures"
-plot_loss_save_path = "transformer_loss.png"
-plot_accuracy_save_path = "transformer_test_accuracy.png"
+plot_loss_save_path = "transformer_liner_loss.png"
+plot_accuracy_save_path = "transformer_test_liner_accuracy.png"
 

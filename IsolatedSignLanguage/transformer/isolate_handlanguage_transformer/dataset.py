@@ -7,22 +7,22 @@ from torch.utils.data import (
 import numpy as np
 from torchvision.transforms import Compose
 import transformer.isolate_handlanguage_transformer.features as features
+import transformer.isolate_handlanguage_transformer.config as config
 import copy
 import torch
 from typing import Tuple, List
 import json
 
 
-def read_dataset(input_dir: Path =  "../hdf5/nhk/") -> Tuple[List, List, List, int]:
+def read_dataset(input_dir: Path = config.read_dataset_dir) -> Tuple[List, List, List, int]:
     dataset_dir = Path(input_dir)
     files = list(dataset_dir.iterdir())
+    print(files)
     hdf5_files = [fin for fin in files if ".hdf5" in fin.name]
 
-    test_file = 10001
-    val_file = 10000
-    train_hdf5files = [fin for fin in hdf5_files if str(test_file) not in fin.name]
-    val_hdf5files = [fin for fin in hdf5_files if str(val_file) in fin.name]
-    test_hdf5files = [fin for fin in hdf5_files if str(test_file) in fin.name]
+    train_hdf5files = [fin for fin in hdf5_files if config.test_number not in fin.name]
+    val_hdf5files = [fin for fin in hdf5_files if config.val_number in fin.name]
+    test_hdf5files = [fin for fin in hdf5_files if config.test_number in fin.name]
     dictionary = [fin for fin in files if ".json" in fin.name][0]
     with open(dictionary, "r") as f:
         key2token = json.load(f)
