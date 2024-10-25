@@ -77,7 +77,6 @@ def kalman_filter_landmarks(group):
 
     # カルマンフィルタを適用
     group = apply_kalman_filter(group)
-    print(group)
     return group
 
 if __name__ == "__main__":

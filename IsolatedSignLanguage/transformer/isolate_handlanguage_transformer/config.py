@@ -19,7 +19,7 @@ REPORTS_DIR = PROJ_ROOT / "reports"
 FIGURES_DIR = REPORTS_DIR / "figures"
 
 #dataset
-read_dataset_dir = "../hdf5/lsa64_liner/"
+read_dataset_dir = "../hdf5/lsa64_kalman/"
 test_number = "001"
 val_number = "002"
 
@@ -46,6 +46,6 @@ USE_RHAND = np.arange(468+21+33, 468+21+33+21)
 
 #plots
 plot_save_dir = "transformer/reports/figures"
-plot_loss_save_path = "transformer_liner_loss.png"
-plot_accuracy_save_path = "transformer_test_liner_accuracy.png"
+plot_loss_save_path = "transformer_kalman_loss.png"
+plot_accuracy_save_path = "transformer_test_kalman_accuracy.png"
 
