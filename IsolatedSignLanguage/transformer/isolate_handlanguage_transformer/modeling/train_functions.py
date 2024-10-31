@@ -196,6 +196,7 @@ def test_loop(dataloader, model, device, use_mask=False,
     print(f"Done. Time:{time.perf_counter()-start}")
 
     acc = correct / size * 100
+    print("テスト正解数: {}, テスト数: {}".format(acc, size))
     print("Test performance: \n",
           f"Accuracy:{acc:>0.1f}%")
     pred_times = np.array(pred_times)
