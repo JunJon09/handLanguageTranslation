@@ -6,6 +6,7 @@ services:
       - ./hdf5/:/src/hdf5/
       - ./IsolatedSignLanguage/:/src/IsolatedSignLanguage/
       - ./Interpolation/:/src/Interpolation
+      - ./ContinuousSignLanguageTransformer:/src/ContinuousSignLanguageTransformer/
       - ./csv/:/src/csv/
       - ./csv_to_hdf5/src/:/src/csv_to_hdf5/
     container_name: python_handlangage
