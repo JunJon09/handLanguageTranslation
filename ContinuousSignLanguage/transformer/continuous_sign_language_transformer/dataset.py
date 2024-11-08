@@ -1,29 +1,22 @@
+import transformer.continuous_sign_language_transformer.config as config
+from typing import Tuple, List
 from pathlib import Path
+import json
 
-import typer
-from loguru import logger
-from tqdm import tqdm
+def read_dataset(input_dir: Path = config.read_dataset_dir) -> Tuple[List, List, List, int]:
+    dataset_dir = Path(input_dir)
+    files = list(dataset_dir.iterdir())
+    print(files)
+    hdf5_files = [fin for fin in files if ".hdf5" in fin.name]
 
-from continuous_sign_language_transformer.config import PROCESSED_DATA_DIR, RAW_DATA_DIR
+    train_hdf5files = [fin for fin in hdf5_files if config.test_number not in fin.name]
+    val_hdf5files = [fin for fin in hdf5_files if config.val_number in fin.name]
+    test_hdf5files = [fin for fin in hdf5_files if config.test_number in fin.name]
+    dictionary = [fin for fin in files if ".json" in fin.name][0]
+    with open(dictionary, "r") as f:
+        key2token = json.load(f)
 
-app = typer.Typer()
-
-
-@app.command()
-def main(
-    # ---- REPLACE DEFAULT PATHS AS APPROPRIATE ----
-    input_path: Path = RAW_DATA_DIR / "dataset.csv",
-    output_path: Path = PROCESSED_DATA_DIR / "dataset.csv",
-    # ----------------------------------------------
-):
-    # ---- REPLACE THIS WITH YOUR OWN CODE ----
-    logger.info("Processing dataset...")
-    for i in tqdm(range(10), total=10):
-        if i == 5:
-            logger.info("Something happened for iteration 5.")
-    logger.success("Processing dataset complete.")
-    # -----------------------------------------
+    VOCAB = len(key2token)
 
 
-if __name__ == "__main__":
-    app()
+    return train_hdf5files, val_hdf5files, test_hdf5files, VOCAB

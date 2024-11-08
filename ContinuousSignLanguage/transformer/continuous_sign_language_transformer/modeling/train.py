@@ -1,30 +1,4 @@
-from pathlib import Path
-
-import typer
-from loguru import logger
-from tqdm import tqdm
-
-from continuous_sign_language_transformer.config import MODELS_DIR, PROCESSED_DATA_DIR
-
-app = typer.Typer()
-
-
-@app.command()
-def main(
-    # ---- REPLACE DEFAULT PATHS AS APPROPRIATE ----
-    features_path: Path = PROCESSED_DATA_DIR / "features.csv",
-    labels_path: Path = PROCESSED_DATA_DIR / "labels.csv",
-    model_path: Path = MODELS_DIR / "model.pkl",
-    # -----------------------------------------
-):
-    # ---- REPLACE THIS WITH YOUR OWN CODE ----
-    logger.info("Training some model...")
-    for i in tqdm(range(10), total=10):
-        if i == 5:
-            logger.info("Something happened for iteration 5.")
-    logger.success("Modeling training complete.")
-    # -----------------------------------------
-
-
+import transformer.continuous_sign_language_transformer.dataset as dataset
 if __name__ == "__main__":
-    app()
+    train_hdf5files, val_hdf5files, test_hdf5files, VOCAB = dataset.read_dataset()
+    
