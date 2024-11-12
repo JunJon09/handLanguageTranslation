@@ -1,6 +1,7 @@
 import transformer.models.transformer_modules as modules
 import transformer.models.transformer_encoer as encoder
 import transformer.models.transformer_decoder as decoder
+import transformer.continuous_sign_language_transformer.modeling.config as model_config
 from torch import nn
 import torch
 import numpy as np
@@ -66,7 +67,7 @@ class TransformerCSLR(nn.Module):
             norm_first=tren_norm_first,
             add_bias=tren_add_bias,
             add_tailnorm=tren_add_tailnorm)
-
+        
         # Transformer-Decoder.
         delayer = decoder.TransformerDecoderLayer(
             dim_model=inter_channels,

@@ -6,49 +6,6 @@ from inspect import signature
 import copy
 import numpy as np
 
-
-class TransformerEncoder(nn.Module):
-    def __init__(self,
-                 encoder_layer,
-                 num_layers,
-                 dim_model,
-                 dropout_pe,
-                 layer_norm_eps,
-                 norm_first,
-                 add_bias,
-                 add_tailnorm):
-        super().__init__()
-
-        self.pos_encoder = PositionalEncoding(dim_model, dropout_pe)
-        self.layers = nn.ModuleList([copy.deepcopy(encoder_layer) for _ in range(num_layers)])
-
-        # Add LayerNorm at tail position.
-        # This is applied only when norm_first is True because
-        # post-normalization structure includes tail-normalization in encoder
-        # layers.
-        if add_tailnorm and norm_first:
-            # The argument `bias` was added at v2.1.0.
-            # So, we check whether LayerNorm has this.
-            sig = signature(nn.LayerNorm)
-            if "bias" in sig.parameters:
-                self.norm = nn.LayerNorm(dim_model, eps=layer_norm_eps, bias=add_bias)
-            else:
-                self.norm = nn.LayerNorm(dim_model, eps=layer_norm_eps)
-        else:
-            self.norm = Identity()
-
-    def forward(self,
-                feature,
-                causal_mask,
-                src_key_padding_mask):
-        feature = self.pos_encoder(feature)
-        for layer in self.layers:
-            feature = layer(feature,
-                            causal_mask,
-                            src_key_padding_mask)
-        feature = self.norm(feature)
-        return feature
-
 class TransformerEncoderLayer(nn.Module):
     def __init__(self,
                  dim_model,
@@ -56,13 +13,18 @@ class TransformerEncoderLayer(nn.Module):
                  dim_ffw,
                  dropout,
                  activation,
-                 layer_norm_eps,
+                 norm_type_sattn,
+                 norm_type_ffw,
+                 norm_eps,
                  norm_first,
                  add_bias):
         super().__init__()
 
         self.norm_first = norm_first
 
+        #################################################
+        # MHA.
+        #################################################
         self.self_attn = modules.MultiheadAttention(
             key_dim=dim_model,
             query_dim=dim_model,
@@ -71,25 +33,20 @@ class TransformerEncoderLayer(nn.Module):
             num_heads=num_heads,
             dropout=dropout,
             add_bias=add_bias)
+        self.norm_sattn = modules.create_norm(norm_type_sattn, dim_model, norm_eps, add_bias)
 
+        #################################################
+        # PFFN.
+        #################################################
         self.ffw = modules.PositionwiseFeedForward(
             dim_model=dim_model,
             dim_ffw=dim_ffw,
             dropout=dropout,
             activation=activation,
             add_bias=add_bias)
+        self.norm_ffw = modules.create_norm(norm_type_ffw, dim_model, norm_eps, add_bias)
 
         self.dropout = nn.Dropout(p=dropout)
-
-        # The argument `bias` was added at v2.1.0.
-        # So, we check whether LayerNorm has this.
-        sig = signature(nn.LayerNorm)
-        if "bias" in sig.parameters:
-            self.norm1 = nn.LayerNorm(dim_model, eps=layer_norm_eps, bias=add_bias)
-            self.norm2 = nn.LayerNorm(dim_model, eps=layer_norm_eps, bias=add_bias)
-        else:
-            self.norm1 = nn.LayerNorm(dim_model, eps=layer_norm_eps)
-            self.norm2 = nn.LayerNorm(dim_model, eps=layer_norm_eps)
 
         # To store attention weights.
         self.attw = None
@@ -107,7 +64,7 @@ class TransformerEncoderLayer(nn.Module):
         #################################################
         # `[N, qlen, dim_model]`
         residual = feature
-        feature = self.norm1(feature)
+        feature = modules.apply_norm(self.norm_sattn, feature)
         feature, self.attw = self.self_attn(
             key=feature,
             value=feature,
@@ -120,7 +77,7 @@ class TransformerEncoderLayer(nn.Module):
         #################################################
         residual = feature
         # `[N, qlen, dim_model]`
-        feature = self.norm2(feature)
+        feature = modules.apply_norm(self.norm_ffw, feature)
         feature = self.ffw(feature)
         feature = self.dropout(feature) + residual
         return feature
@@ -142,7 +99,7 @@ class TransformerEncoderLayer(nn.Module):
             query=feature,
             mask=san_mask)
         feature = self.dropout(feature) + residual
-        feature = self.norm1(feature)
+        feature = modules.apply_norm(self.norm_sattn, feature)
 
         #################################################
         # FFW
@@ -151,7 +108,7 @@ class TransformerEncoderLayer(nn.Module):
         # `[N, qlen, dim_model]`
         feature = self.ffw(feature)
         feature = self.dropout(feature) + residual
-        feature = self.norm2(feature)
+        feature = modules.apply_norm(self.norm_ffw, feature)
         return feature
 
     def forward(self,
@@ -173,40 +130,46 @@ class TransformerEncoderLayer(nn.Module):
 
         return feature
 
-class Identity(nn.Module):
-    """Place holder layer to return identity vector.
-    """
-    # This design is on purpose.
-    # pylint: disable=unused-argument
-    def __init__(self, *args, **kwargs):
-        super().__init__()
 
-    def forward(self, feature, *args, **kwargs):
-        """Perform forward computation.
-        """
-        return feature
-
-
-class PositionalEncoding(nn.Module):
+class TransformerEncoder(nn.Module):
     def __init__(self,
-                 dim_model: int,
-                 dropout: float,
-                 max_len: int = 5000):
+                 encoder_layer,
+                 num_layers,
+                 dim_model,
+                 dropout_pe,
+                 norm_type_tail,
+                 norm_eps,
+                 norm_first,
+                 add_bias,
+                 add_tailnorm):
         super().__init__()
-        self.dim_model = dim_model
-        # Compute the positional encodings once in log space.
-        pose = torch.zeros(max_len, dim_model, dtype=torch.float32)
-        position = torch.arange(0, max_len, dtype=torch.float32).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, dim_model, 2).float()
-                             * -(math.log(10000.0) / dim_model))
-        pose[:, 0::2] = torch.sin(position * div_term)
-        pose[:, 1::2] = torch.cos(position * div_term)
-        self.register_buffer("pose", pose)
 
-        self.dropout = nn.Dropout(p=dropout)
+        self.pos_encoder = modules.PositionalEncoding(dim_model, dropout_pe)
+        self.layers = nn.ModuleList([copy.deepcopy(encoder_layer) for _ in range(num_layers)])
+
+        # Add LayerNorm at tail position.
+        # This is applied only when norm_first is True because
+        # post-normalization structure includes tail-normalization in encoder
+        # layers.
+        if add_tailnorm and norm_first:
+            self.norm_tail = modules.create_norm(norm_type_tail, dim_model, norm_eps, add_bias)
+        else:
+            self.norm_tail = modules.Identity()
 
     def forward(self,
-                feature):
-        feature = feature + self.pose[None, :feature.shape[1], :]
-        feature = self.dropout(feature)
+                feature,
+                causal_mask,
+                src_key_padding_mask):
+        feature = self.pos_encoder(feature)
+        for layer in self.layers:
+            feature = layer(feature,
+                            causal_mask,
+                            src_key_padding_mask)
+        feature = modules.apply_norm(self.norm_tail, feature)
         return feature
+
+
+
+
+
+

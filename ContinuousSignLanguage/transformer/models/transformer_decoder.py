@@ -1,6 +1,8 @@
 import transformer.models.transformer_modules as modules
 from torch import nn
 import torch
+import copy
+import math
 
 
 
@@ -180,3 +182,75 @@ class TransformerDecoderLayer(nn.Module):
                                                  tgt_san_mask, enc_tgt_mask)
 
         return tgt_feature
+
+class TransformerDecoder(nn.Module):
+    def __init__(self,
+                 decoder_layer,
+                 out_channels,
+                 num_layers,
+                 dim_model,
+                 dropout_pe,
+                 norm_type_tail,
+                 norm_eps,
+                 norm_first,
+                 add_bias,
+                 add_tailnorm,
+                 padding_val):
+        super().__init__()
+
+        self.emb_layer = nn.Embedding(out_channels,
+                                      dim_model,
+                                      padding_idx=padding_val)
+        self.vocab_size = out_channels
+
+        self.pos_encoder = modules.PositionalEncoding(dim_model, dropout_pe)
+        self.layers = nn.ModuleList([copy.deepcopy(decoder_layer) for _ in range(num_layers)])
+
+        # Add LayerNorm at tail position.
+        # This is applied only when norm_first is True because
+        # post-normalization structure includes tail-normalization in encoder
+        # layers.
+        if add_tailnorm and norm_first:
+            self.norm_tail = modules.create_norm(norm_type_tail, dim_model, norm_eps, add_bias)
+        else:
+            self.norm_tail = modules.Identity()
+
+        self.head = nn.Linear(dim_model, out_channels)
+
+        self.reset_parameters(dim_model, padding_val)
+
+    def reset_parameters(self, embedding_dim, padding_val):
+        # Bellow initialization has strong effect to performance.
+        # Please refer.
+        # https://github.com/facebookresearch/fairseq/blob/main/fairseq/models/transformer/transformer_base.py#L189
+        nn.init.normal_(self.emb_layer.weight, mean=0, std=embedding_dim**-0.5)
+        nn.init.constant_(self.emb_layer.weight[padding_val], 0)
+
+        # Please refer.
+        # https://github.com/facebookresearch/fairseq/blob/main/fairseq/models/transformer/transformer_decoder.py
+        nn.init.xavier_uniform_(self.head.weight)
+        nn.init.constant_(self.head.bias, 0.0)
+
+    def forward(self,
+                tgt_feature,
+                enc_feature,
+                tgt_causal_mask,
+                enc_tgt_causal_mask,
+                tgt_key_padding_mask,
+                enc_key_padding_mask):
+
+        tgt_feature = self.emb_layer(tgt_feature) * math.sqrt(self.vocab_size)
+
+        tgt_feature = self.pos_encoder(tgt_feature)
+        for layer in self.layers:
+            tgt_feature = layer(
+                tgt_feature=tgt_feature,
+                enc_feature=enc_feature,
+                tgt_causal_mask=tgt_causal_mask,
+                enc_tgt_causal_mask=enc_tgt_causal_mask,
+                tgt_key_padding_mask=tgt_key_padding_mask,
+                enc_key_padding_mask=enc_key_padding_mask)
+        tgt_feature = modules.apply_norm(self.norm_tail, tgt_feature)
+
+        logit = self.head(tgt_feature)
+        return logit

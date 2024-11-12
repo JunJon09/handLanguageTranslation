@@ -1,30 +1,21 @@
-from pathlib import Path
-
-import typer
-from loguru import logger
-from tqdm import tqdm
-
-from continuous_sign_language_transformer.config import MODELS_DIR, PROCESSED_DATA_DIR
-
-app = typer.Typer()
-
-
-@app.command()
-def main(
-    # ---- REPLACE DEFAULT PATHS AS APPROPRIATE ----
-    features_path: Path = PROCESSED_DATA_DIR / "test_features.csv",
-    model_path: Path = MODELS_DIR / "model.pkl",
-    predictions_path: Path = PROCESSED_DATA_DIR / "test_predictions.csv",
-    # -----------------------------------------
-):
-    # ---- REPLACE THIS WITH YOUR OWN CODE ----
-    logger.info("Performing inference for model...")
-    for i in tqdm(range(10), total=10):
-        if i == 5:
-            logger.info("Something happened for iteration 5.")
-    logger.success("Inference complete.")
-    # -----------------------------------------
-
-
+import os
+import transformer.continuous_sign_language_transformer.modeling.config as model_config
+import transformer.continuous_sign_language_transformer.modeling.train_functions as functions
+import torch
 if __name__ == "__main__":
-    app()
+    save_path = os.path.join(model_config.model_save_dir, model_config.model_save_path)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    loaded_model, loaded_optimizer, loaded_epoch, loaded_val_losses, test_dataloader, key2token = functions.load_model(save_path, device)
+
+    max_seqlen = 60
+
+    sos_token = key2token["<sos>"]
+    eos_token = key2token["<eos>"]
+
+    test_acc = functions.test_loop_csir_s2s(
+                test_dataloader, loaded_model, device,
+                sos_token, eos_token,
+                max_seqlen=max_seqlen,
+                return_pred_times=True,
+                verbose_num=0)
+    print(f"ロードしたモデルのテスト精度: {test_acc}%")

@@ -1,29 +1,32 @@
-from pathlib import Path
-
-import typer
-from loguru import logger
-from tqdm import tqdm
-
-from continuous_sign_language_transformer.config import FIGURES_DIR, PROCESSED_DATA_DIR
-
-app = typer.Typer()
+import matplotlib.pyplot as plt
+import transformer.continuous_sign_language_transformer.config as config
+import numpy as np
+import os
 
 
-@app.command()
-def main(
-    # ---- REPLACE DEFAULT PATHS AS APPROPRIATE ----
-    input_path: Path = PROCESSED_DATA_DIR / "dataset.csv",
-    output_path: Path = FIGURES_DIR / "plot.png",
-    # -----------------------------------------
-):
-    # ---- REPLACE THIS WITH YOUR OWN CODE ----
-    logger.info("Generating plot from data...")
-    for i in tqdm(range(10), total=10):
-        if i == 5:
-            logger.info("Something happened for iteration 5.")
-    logger.success("Plot generation complete.")
-    # -----------------------------------------
+def loss_plot(val_losses_trans):
 
+    plt.grid(axis="y", linestyle="dotted", color="k")
 
-if __name__ == "__main__":
-    app()
+    xs = np.arange(1, len(val_losses_trans)+1)
+    plt.plot(xs, val_losses_trans, label="Transformer", marker=".")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.ylim([0.0, 5.0])
+    plt.legend()
+    save_path = os.path.join(config.plot_save_dir, config.plot_loss_save_path)
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+def test_data_plot(test_wers_trans):
+    plt.grid(axis="y", linestyle="dotted", color="k")
+
+    xs = np.arange(1, len(test_wers_trans)+1)
+    plt.plot(xs, test_wers_trans, label="Transformer", marker=".")
+    plt.xlabel("Epochs")
+    plt.ylabel("WER")
+    plt.ylim([0.0, 100.0])
+    plt.legend()
+    save_path = os.path.join(config.plot_save_dir, config.plot_accuracy_save_path)
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
