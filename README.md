@@ -71,5 +71,6 @@ disable：無効化（コメントアウト等）
 remove：削除（ファイル）
 upgrade：バージョンアップ
 revert：変更取り消し
+chore: それ以外
 </pre>
 2024年10月31日から

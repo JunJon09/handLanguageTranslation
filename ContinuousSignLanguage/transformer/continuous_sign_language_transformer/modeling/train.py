@@ -52,7 +52,7 @@ if __name__ == "__main__":
 
     label_smoothing = 0.1
     lr = 3e-4
-    epochs = 1
+    epochs = 50
     eval_every_n_epochs = 1
     max_seqlen = 60
     sos_token = key2token["<sos>"]
