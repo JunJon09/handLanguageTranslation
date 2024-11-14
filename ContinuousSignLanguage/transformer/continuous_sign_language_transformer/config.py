@@ -29,6 +29,6 @@ batch_size = 32
 
 #plots
 plot_save_dir = "transformer/reports/figures"
-plot_loss_save_path = "transformer_kalman_loss.png"
-plot_accuracy_save_path = "transformer_test_kalman_accuracy.png"
+plot_loss_save_path = "transformer_loss.png"
+plot_accuracy_save_path = "transformer_test_accuracy.png"
 

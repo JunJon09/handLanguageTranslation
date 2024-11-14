@@ -80,6 +80,8 @@ LSA64からMediaPipeで骨格座標を取得し、その後線形補間を行い
 #### Test結果
 ![](ContinuousSignLanguage/transformer/reports/figures/transformer_test_accuracy.png)
 
+WER率 70%
+
 WER（Word Error Rate、単語誤り率）は、音声認識や機械翻訳などの自然言語処理システムの性能を評価するためによく使用される指標。WERは、システムが出力した文（仮説文）と正しい文（参照文）との間で発生した単語の置換（Substitutions）、削除（Deletions）、挿入（Insertions）の総数を基に計算される。
 
 
