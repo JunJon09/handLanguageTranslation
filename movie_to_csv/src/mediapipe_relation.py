@@ -128,12 +128,12 @@ class MediaPipeClass:
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
 
                 # フレームを表示
-                # cv2.imshow('MediaPipe Landmarks', frame)
+                cv2.imshow('MediaPipe Landmarks', frame)
 
                 # # ウィンドウを閉じるために 'q' キーを押す
-                # if cv2.waitKey(1) & 0xFF == ord('q'):
-                #     print("ユーザーによって処理が中断されました。")
-                #     break
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    print("ユーザーによって処理が中断されました。")
+                    break
 
                 if len(frame_landmarks['left_hand']) == 0:
                     empty_landmarks = [{'x': None, 'y': None, 'z': None} for _ in range(config.left_landmark_number)]
