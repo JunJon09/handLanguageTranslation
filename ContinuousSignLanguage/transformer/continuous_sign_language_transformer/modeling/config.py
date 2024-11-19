@@ -27,9 +27,9 @@ trde_add_tailnorm=True
 #学習パラメータ
 label_smoothing = 0.1
 lr = 3e-4
-epochs = 50
+epochs = 200
 eval_every_n_epochs = 1
-max_seqlen = 60
+max_seqlen = 200
 
 #モデルの保存
 model_save_dir = "transformer/models"
