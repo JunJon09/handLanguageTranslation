@@ -4,6 +4,7 @@ import mediapipe_relation
 import random
 import config
 import csv
+import minimum_continuous_hand_language_relation as minimum_relation
 
 
 def get_movie_files():
@@ -63,7 +64,8 @@ def write_index_csv(path, person_number, file_name, sign):
         
         if not file_exists:
             write.writeheader()
-        text_sign = ', '.join(map(str, sign))
+        value = [minimum_relation.minimum_continuous_hand_language_relation[key] for key in sign]
+        text_sign = ",".join(value)
         write.writerow({"path": path, "person_number": person_number, "file_name": file_name, "sign": text_sign})
 
         

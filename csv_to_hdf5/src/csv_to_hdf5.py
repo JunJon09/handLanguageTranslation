@@ -46,8 +46,15 @@ def landmarks_csv_to_hdf5(track_info:list , output_dir: str, dictionary: dict, c
                 path = info[0]
                 pid = info[1]
                 sid = info[2]
-                sign = lsa64_relation.lsa64_nan_to_none(info[3])
-                token = np.array([dictionary[sign]])
+
+                #lsa64
+                # sign = lsa64_relation.lsa64_nan_to_none(info[3])
+                # token = np.array([dictionary[sign]])
+
+                #minimum_continuous_hand_language
+                sign = [data for data in info[3].split(",")]
+                token = np.array(sign, dtype=int)
+                print(token)
                 
                 assert pid == upid, f"{pid}:{upid}"
                 track_path = "../.." + path

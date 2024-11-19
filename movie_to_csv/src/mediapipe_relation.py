@@ -4,12 +4,7 @@ from typing import List, Dict, Any
 import config
 
 class MediaPipeClass:
-    def __init__(self) -> None:
-        pose = []
-        face = []
-        left_hand = []
-        right_had = []
-    
+
     def get_skeleton_by_mediapipe(self, input_file:str) -> List[Dict[str, Any]]:
         mp_face_mesh = mp.solutions.face_mesh
         mp_pose = mp.solutions.pose
