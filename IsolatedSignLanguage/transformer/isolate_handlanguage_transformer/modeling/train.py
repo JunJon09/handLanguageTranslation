@@ -8,8 +8,8 @@ from torch import nn
 import torch
 import numpy as np
 
-if __name__ == "__main__":
-    train_hdf5files, val_hdf5files, test_hdf5files, VOCAB = dataset.read_dataset()
+def main(test_number, val_number, model_save_path):
+    train_hdf5files, val_hdf5files, test_hdf5files, VOCAB = dataset.read_dataset(test_number, val_number)
     train_dataloader, val_dataloader, test_dataloader, in_channels = functions.set_dataloader(train_hdf5files, val_hdf5files, test_hdf5files)
 
     out_channels = VOCAB
@@ -57,9 +57,21 @@ if __name__ == "__main__":
     print(f"Maximum accuracy:{test_accs_default.max()} at {np.argmax(test_accs_default)*model_config.eval_every_n_epochs+1} epoch.")
 
 
-    save_path = os.path.join(model_config.model_save_dir, model_config.model_save_path)
+    save_path = os.path.join(model_config.model_save_dir, model_save_path)
     functions.save_model(save_path, model_default_dict=model_default.state_dict(), optimizer_dict=optimizer.state_dict(), epoch=model_config.epochs, val_loss=val_losses_default)
 
     plot.loss_plot(val_losses_default=val_losses_default)
     plot.test_data_plot(test_accs_default=test_accs_default)
 
+
+
+if __name__ == "__main__":
+    for test in range(1, 11):
+        for val in range(1, 11):
+            if val == test:
+                continue
+            val_number = str(val).zfill(3)
+            test_number = str(test).zfill(3)
+            model_path = "transformer_model_val_" + val_number + "_test_" + test_number + ".pth"
+            print(model_path)
+            main(test_number, val_number, model_path)
