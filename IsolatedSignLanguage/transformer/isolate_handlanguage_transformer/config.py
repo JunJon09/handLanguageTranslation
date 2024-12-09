@@ -19,9 +19,9 @@ REPORTS_DIR = PROJ_ROOT / "reports"
 FIGURES_DIR = REPORTS_DIR / "figures"
 
 #dataset
-read_dataset_dir = "../hdf5/lsa64_kalman/"
-test_number = "001"
-val_number = "002"
+read_dataset_dir = "../hdf5/lsa64_liner/"
+test_number = "002"
+val_number = "001"
 
 #train
 use_features  = ["x", "y"]
