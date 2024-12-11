@@ -6,6 +6,17 @@
 
 エンコーダーに1DCNNを用いて、デコーダーにTransformerのDecoderを用いた連続手話認
 
+## 実行コマンド
+train.pyの場合
+以下のディレクトリで実行してください
+```bash
+/src/ContinuousSignLanguage
+```
+```bash
+python -m cnn_transformer.continuous_sign_language_cnn_transformer.modeling.train
+
+```
+
 ## Project Organization
 
 ```

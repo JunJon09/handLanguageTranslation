@@ -2,7 +2,7 @@ import cnn_transformer.continuous_sign_language_cnn_transformer.features as feat
 import cnn_transformer.continuous_sign_language_cnn_transformer.config as config
 import cnn_transformer.continuous_sign_language_cnn_transformer.dataset as dataset
 import cnn_transformer.continuous_sign_language_cnn_transformer.modeling.config as model_config
-import cnn_transformer.models as models
+import cnn_transformer.models.cnn_transformer as models
 from torchvision.transforms import Compose
 from torch.utils.data import DataLoader
 import os

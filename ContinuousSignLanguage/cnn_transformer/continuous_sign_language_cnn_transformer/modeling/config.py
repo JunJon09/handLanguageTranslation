@@ -1,5 +1,9 @@
-inter_channels = 64
+inter_channels = 128
 activation="relu"
+
+#detail 1DCNN
+kernel_size = 3
+stride = 1
 
 #detail transformer encoder
 tren_num_layers=2
@@ -27,10 +31,10 @@ trde_add_tailnorm=True
 #学習パラメータ
 label_smoothing = 0.1
 lr = 3e-4
-epochs = 200
+epochs = 10
 eval_every_n_epochs = 1
 max_seqlen = 200
 
 #モデルの保存
-model_save_dir = "transformer/models"
-model_save_path = "transformer_model.pth"
+model_save_dir = "cnn_transformer/models"
+model_save_path = "cnn_transformer_model.pth"

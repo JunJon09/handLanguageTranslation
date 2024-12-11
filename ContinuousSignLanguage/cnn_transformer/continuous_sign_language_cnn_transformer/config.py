@@ -2,8 +2,8 @@ import numpy as np
 
 #dataset
 read_dataset_dir = "../hdf5/minimum_continuous_hand_language/"
-test_number = "0"
-val_number = "1"
+test_number = "001"
+val_number = "002"
 
 # features 
 USE_LIP = [
@@ -26,3 +26,8 @@ USE_RHAND = np.arange(468+21+33, 468+21+33+21)
 use_features = ["x", "y"]
 load_into_ram = True
 batch_size = 32
+
+#plots
+plot_save_dir = "cnn_transformer/reports/figures"
+plot_loss_save_path = "transformer_loss.png"
+plot_accuracy_save_path = "transformer_test_accuracy.png"

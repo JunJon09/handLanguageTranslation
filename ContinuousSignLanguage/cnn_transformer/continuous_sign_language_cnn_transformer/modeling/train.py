@@ -17,35 +17,37 @@ def main():
 
     cnn_transformer = model.CNNTransformerModel(
             in_channels=in_channels,
-    inter_channels=model_config.inter_channels,
-    out_channels=out_channels,
-    padding_val=pad_token,
-    activation=model_config.activation,
-    tren_num_layers=model_config.tren_num_layers,
-    tren_num_heads=model_config.tren_num_heads,
-    tren_dim_ffw=model_config.tren_dim_ffw,
-    tren_dropout_pe=model_config.tren_dropout_pe,
-    tren_dropout=model_config.tren_dropout,
-    tren_norm_type_sattn=model_config.norm_type,
-    tren_norm_type_ffw=model_config.norm_type,
-    tren_norm_type_tail=model_config.norm_type,
-    tren_norm_eps=model_config.tren_norm_eps,
-    tren_norm_first=model_config.tren_norm_first,
-    tren_add_bias=model_config.tren_add_bias,
-    tren_add_tailnorm=model_config.tren_add_tailnorm,
-    trde_num_layers=model_config.trde_num_layers,
-    trde_num_heads=model_config.trde_num_heads,
-    trde_dim_ffw=model_config.trde_dim_ffw,
-    trde_dropout_pe=model_config.trde_dropout_pe,
-    trde_dropout=model_config.trde_dropout,
-    trde_norm_type_sattn=model_config.norm_type,
-    trde_norm_type_cattn=model_config.norm_type,
-    trde_norm_type_ffw=model_config.norm_type,
-    trde_norm_type_tail=model_config.norm_type,
-    trde_norm_eps=model_config.trde_norm_eps,
-    trde_norm_first=model_config.trde_norm_first,
-    trde_add_bias=model_config.trde_add_bias,
-    trde_add_tailnorm=model_config.trde_add_tailnorm)
+            inter_channels=model_config.inter_channels,
+            kernel_size=model_config.inter_channels,
+            stride=model_config.stride,
+            out_channels=out_channels,
+            padding_val=pad_token,
+            activation=model_config.activation,
+            tren_num_layers=model_config.tren_num_layers,
+            tren_num_heads=model_config.tren_num_heads,
+            tren_dim_ffw=model_config.tren_dim_ffw,
+            tren_dropout_pe=model_config.tren_dropout_pe,
+            tren_dropout=model_config.tren_dropout,
+            tren_norm_type_sattn=model_config.norm_type,
+            tren_norm_type_ffw=model_config.norm_type,
+            tren_norm_type_tail=model_config.norm_type,
+            tren_norm_eps=model_config.tren_norm_eps,
+            tren_norm_first=model_config.tren_norm_first,
+            tren_add_bias=model_config.tren_add_bias,
+            tren_add_tailnorm=model_config.tren_add_tailnorm,
+            trde_num_layers=model_config.trde_num_layers,
+            trde_num_heads=model_config.trde_num_heads,
+            trde_dim_ffw=model_config.trde_dim_ffw,
+            trde_dropout_pe=model_config.trde_dropout_pe,
+            trde_dropout=model_config.trde_dropout,
+            trde_norm_type_sattn=model_config.norm_type,
+            trde_norm_type_cattn=model_config.norm_type,
+            trde_norm_type_ffw=model_config.norm_type,
+            trde_norm_type_tail=model_config.norm_type,
+            trde_norm_eps=model_config.trde_norm_eps,
+            trde_norm_first=model_config.trde_norm_first,
+            trde_add_bias=model_config.trde_add_bias,
+            trde_add_tailnorm=model_config.trde_add_tailnorm)
 
     label_smoothing = model_config.label_smoothing
     lr = model_config.lr
@@ -100,9 +102,9 @@ def main():
 
     save_path = os.path.join(model_config.model_save_dir, model_config.model_save_path)
     functions.save_model(save_path, model_default_dict=cnn_transformer.state_dict(), optimizer_dict=optimizer.state_dict(), epoch=model_config.epochs, val_loss=val_losses_trans)
-
-    plot.loss_plot(val_losses_trans=val_losses_trans)
-    plot.test_data_plot(test_wers_trans=test_wers_trans)
+    print(val_losses_trans)
+    plot.loss_plot(val_losses_trans)
+    plot.test_data_plot(test_wers_trans)
 
 if __name__ == "__main__":
     main()

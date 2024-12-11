@@ -11,11 +11,9 @@ class CNNTransformerModel(nn.Module):
     def __init__(
             self,
             in_channels,
-            tren_in_channels,
             kernel_size,
             inter_channels,
             stride,
-            padding,
             out_channels,
             padding_val,
             activation="relu",
@@ -45,16 +43,20 @@ class CNNTransformerModel(nn.Module):
             trde_add_bias=True,
             trde_add_tailnorm=True):
         super().__init__()
-
-
+        
         #1DCNN block
-        self.cnn_block = cnn_model.CNNFeatureExtractor(
+        cnn = cnn_model.CNNFeatureExtractor(
             in_channels=in_channels,
             out_channels=inter_channels,
             kernel_size=kernel_size,
-            stride=stride,
-            padding=padding,
+            stride=stride
         )
+        self.cnn_extractor = cnn_model.CNNLocalFeatureExtractor(
+            cnn=cnn
+        )
+
+        self.linear = nn.Linear(inter_channels, inter_channels)
+        self.activation = modules.select_reluwise_activation(activation)
 
         # Transformer-Encoder.
         enlayer = encoder.TransformerEncoderLayer(
@@ -128,18 +130,19 @@ class CNNTransformerModel(nn.Module):
         # `[N, C, T, J] -> [N, T, C, J] -> [N, T, C*J] -> [N, T, C']`
 
         N, C, T, J = src_feature.shape #バッチサイズ, チャネル数, フレーム, 骨格座標
-        # 形状を [N, C, T, J] -> [N, C, T*J] に変換
-        src_feature = src_feature.view(N, C, T * J)
-        #CNNの処理 [N, C, L] -> [N, C', L']
-        src_feature = self.cnn_block(src_feature)
-
+        # 形状を [N, C, T, J] -> [N, C* J, T] に変換
+        src_feature = src_feature.view(N, C * J, T)
+        #CNNの処理 [N, L, T] -> [N, T', L']
+        src_feature = self.cnn_extractor(src_feature)
+        print(src_feature[0][0][0])
+        print("src_feature: {}: back".format(src_feature.shape))
         # src_feature = src_feature.permute([0, 2, 1, 3])
         # src_feature = src_feature.reshape(N, T, -1)
 
         # src_feature = self.linear(src_feature)
 
         # [N, C', L'] -> [L', N, C']
-        src_feature = src_feature.permute(1, 2, 0)  
+        #src_feature = src_feature.permute(1, 2, 0)  
 
 
         enc_feature = self.tr_encoder(
@@ -167,12 +170,11 @@ class CNNTransformerModel(nn.Module):
 
         # Feature extraction.
         # `[N, C, T, J] -> [N, T, C, J] -> [N, T, C*J] -> [N, T, C']`
-        N, C, T, J = src_feature.shape
-        src_feature = src_feature.permute([0, 2, 1, 3])
-        src_feature = src_feature.reshape(N, T, -1)
-
-        src_feature = self.linear(src_feature)
-
+        N, C, T, J = src_feature.shape #バッチサイズ, チャネル数, フレーム, 骨格座標
+        # 形状を [N, C, T, J] -> [N, C* J, T] に変換
+        src_feature = src_feature.view(N, C * J, T)
+        #CNNの処理 [N, L, T] -> [N, T', L']
+        src_feature = self.cnn_extractor(src_feature)
         enc_feature = self.tr_encoder(
             feature=src_feature,
             causal_mask=None,
