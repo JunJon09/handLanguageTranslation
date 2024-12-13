@@ -18,7 +18,7 @@ def main():
     cnn_transformer = model.CNNTransformerModel(
             in_channels=in_channels,
             inter_channels=model_config.inter_channels,
-            kernel_size=model_config.inter_channels,
+            kernel_size=model_config.kernel_size,
             stride=model_config.stride,
             out_channels=out_channels,
             padding_val=pad_token,

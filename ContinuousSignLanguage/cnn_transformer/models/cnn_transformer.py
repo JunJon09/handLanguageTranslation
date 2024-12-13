@@ -134,16 +134,6 @@ class CNNTransformerModel(nn.Module):
         src_feature = src_feature.view(N, C * J, T)
         #CNNの処理 [N, L, T] -> [N, T', L']
         src_feature = self.cnn_extractor(src_feature)
-        print(src_feature[0][0][0])
-        print("src_feature: {}: back".format(src_feature.shape))
-        # src_feature = src_feature.permute([0, 2, 1, 3])
-        # src_feature = src_feature.reshape(N, T, -1)
-
-        # src_feature = self.linear(src_feature)
-
-        # [N, C', L'] -> [L', N, C']
-        #src_feature = src_feature.permute(1, 2, 0)  
-
 
         enc_feature = self.tr_encoder(
             feature=src_feature,

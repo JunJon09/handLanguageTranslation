@@ -1,8 +1,8 @@
-inter_channels = 128
+inter_channels = 512
 activation="relu"
 
 #detail 1DCNN
-kernel_size = 3
+kernel_size = 5
 stride = 1
 
 #detail transformer encoder
@@ -31,7 +31,7 @@ trde_add_tailnorm=True
 #学習パラメータ
 label_smoothing = 0.1
 lr = 3e-4
-epochs = 10
+epochs = 100
 eval_every_n_epochs = 1
 max_seqlen = 200
 
