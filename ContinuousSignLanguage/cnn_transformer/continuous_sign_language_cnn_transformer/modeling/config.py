@@ -2,7 +2,7 @@ inter_channels = 512
 activation="relu"
 
 #detail 1DCNN
-kernel_size = 5
+kernel_size = 3
 stride = 1
 
 #detail transformer encoder

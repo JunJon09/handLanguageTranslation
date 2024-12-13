@@ -55,7 +55,14 @@ class CNNLocalFeatureExtractor(nn.Module):
         #
 
         #固定長ウィンドウへの分割, 時間軸に沿ってウィンドウを作成  # [N, C*J, T] -> [N, C*J, T-window_size+1(now_windows), window_size]
-        windows = x.unfold(dimension=2, size=self.window_size, step=self.stride) 
+        N, CJ, T = x.shape
+        if int(T) < 5:
+            pad_size = 5 - T
+            # 最終フレームを取得してpad_size分複製
+            last_frame = x[:, :, -1].unsqueeze(2).repeat(1, 1, pad_size)
+            # 元のテンソルとパディング分を連結
+            x = torch.cat([x, last_frame], dim=2)
+        windows = x.unfold(dimension=2, size=self.window_size, step=self.stride)
         N, CJ, num_windows, window_size = windows.shape
 
         # 3. CNNへの入力整形: [N, C*J, T-window_size+1, window_size] -> [N*num_windows, C*J, window_size]

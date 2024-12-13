@@ -1,16 +1,16 @@
 import numpy as np
 
 #dataset
-read_dataset_dir = "../hdf5/minimum_continuous_hand_language/"
-test_number = "001"
-val_number = "002"
+read_dataset_dir = "../hdf5/gafs_dataset_very_small/"
+test_number = "1"
+val_number = "2"
 
 # features 
 USE_LIP = [
     61, 185, 40, 39, 37, 0, 267, 269, 270, 409,
     291, 375, 321, 405, 314, 17, 84, 181, 91, 146,
     78, 191, 80, 81, 82, 13, 312, 311, 310, 415,
-    308, 324, 318, 402, 317, 14, 87, 178, 88, 95]
+    308, 324, 318, 402, 317, 14, 87, 178, 88, 95] 
 
 USE_NOSE = [1, 2, 98, 327]
 USE_REYE = [33, 7, 163, 144, 145, 153, 154, 155, 133,
