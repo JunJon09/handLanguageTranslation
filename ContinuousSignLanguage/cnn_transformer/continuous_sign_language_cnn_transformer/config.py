@@ -1,7 +1,7 @@
 import numpy as np
 
 #dataset
-read_dataset_dir = "../hdf5/gafs_dataset_very_small/"
+read_dataset_dir = "../hdf5/minimum_continuous_hand_language/"
 test_number = "1"
 val_number = "2"
 
@@ -18,10 +18,10 @@ USE_REYE = [33, 7, 163, 144, 145, 153, 154, 155, 133,
 USE_LEYE = [263, 249, 390, 373, 374, 380, 381, 382, 362,
             466, 388, 387, 386, 385, 384, 398]
 
-USE_LHAND = np.arange(468, 468+21)
-USE_POSE = np.array([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]) + 468 + 21
-# USE_POSE = np.array([15, 16, 17, 18, 19, 20, 21, 22]) + 468 + 21
-USE_RHAND = np.arange(468+21+33, 468+21+33+21)
+USE_POSE = np.array([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]) + 478
+
+USE_LHAND = np.arange(478+33, 478+33+21)
+USE_RHAND = np.arange(478+33+21, 478+21+33+21)
 
 use_features = ["x", "y"]
 load_into_ram = True

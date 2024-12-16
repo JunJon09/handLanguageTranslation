@@ -17,10 +17,12 @@ def get_index_csv_files():
 
 
 def load_relevant_data_subset(pq_path):
+    #(T, J, C)
     names = ['x', 'y', 'z']
     data = pd.read_csv(pq_path, usecols=names)
     n_frames = int(len(data) / ROWS_PER_FRAME)
     data = data.values.reshape(n_frames, ROWS_PER_FRAME, len(names))
+    print(data[0][478], pq_path)
     return data.astype(np.float32)
 
 def landmarks_csv_to_hdf5(track_info:list , output_dir: str, dictionary: dict, convert_to_channel_first: bool=False):

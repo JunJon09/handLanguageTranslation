@@ -54,12 +54,12 @@ class PartsBasedNormalization():
                  face_origin=[0, 2],
                  face_unit1=[7],
                  face_unit2=[42],
-                 lhand_head=76,
+                 lhand_head=76+12,
                  lhand_num=21,
                  lhand_origin=[0, 2, 5, 9, 13, 17],
                  lhand_unit1=[0],
                  lhand_unit2=[2, 5, 9, 13, 17],
-                 pose_head=76+21,
+                 pose_head=76,
                  pose_num=12,
                  pose_origin=[0, 1],
                  pose_unit1=[0],
@@ -159,17 +159,36 @@ class PartsBasedNormalization():
         _feature = _feature / unit
         _feature = _feature * tmask
         return _feature
+    
+    def append_spatial_feature():
+        """
+            dataの配列: (C, T, J)
+            基準点から5 本の指先と第一関節の差:
+            親指の先と残りの指先の距離
+            それぞれの指先同士の距離
+            基準点と図1 の点9 とx 軸との成す角
+            基準点と図1 の点4 とz 軸との成す角
+            基準点と図1 の点20 とz 軸との成す角
+            図1 の点9 と指先の線分とx 軸との成す角
+            指の第二関節と指先の線分とx 軸との成す角
+            上記を追加する。
+        """
+        
+
 
     def __call__(self,
                  data: Dict[str, Any]) -> Dict[str, Any]:
         feature = data["feature"]
+        print(feature.shape)
         if self.face_num > 0:
             face = feature[:, :, self.face_head: self.face_head+self.face_num]
             face = self._normalize(face, self.face_origin,
                                    self.face_unit1, self.face_unit2)
             feature[:, :, self.face_head: self.face_head+self.face_num] = face
         if self.lhand_num > 0:
+            print(feature.shape, self.lhand_num, self.lhand_head)
             lhand = feature[:, :, self.lhand_head: self.lhand_head+self.lhand_num]
+            print(lhand.shape, "lhand", )
             lhand = self._normalize(lhand, self.lhand_origin,
                                     self.lhand_unit1, self.lhand_unit2)
             feature[:, :, self.lhand_head: self.lhand_head+self.lhand_num] = lhand

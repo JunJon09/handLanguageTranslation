@@ -15,7 +15,6 @@ import torch
 def read_dataset(input_dir: Path = config.read_dataset_dir) -> Tuple[List, List, List, int]:
     dataset_dir = Path(input_dir)
     files = list(dataset_dir.iterdir())
-    print(files)
     hdf5_files = [fin for fin in files if ".hdf5" in fin.name]
 
     train_hdf5files = [fin for fin in hdf5_files if config.test_number not in fin.name]
@@ -62,6 +61,7 @@ class HDF5Dataset(Dataset):
                             data["feature"] = feature
                         if self.pre_transforms:
                             data = self.pre_transforms(data)
+                           
                     else:
                         data = None
                     data_info.append({
@@ -196,4 +196,3 @@ def merge_padded_batch(batch,
         "feature_pad_mask": feature_pad_mask,
         "token_pad_mask": token_pad_mask}
     return retval
-
