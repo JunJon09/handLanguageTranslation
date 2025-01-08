@@ -2,10 +2,11 @@ import numpy as np
 
 #dataset
 read_dataset_dir = "../hdf5/minimum_continuous_hand_language/"
-test_number = "1"
-val_number = "2"
+test_number = "005"
+val_number = "004"
 
 # features 
+
 USE_LIP = [
     61, 185, 40, 39, 37, 0, 267, 269, 270, 409,
     291, 375, 321, 405, 314, 17, 84, 181, 91, 146,

@@ -12,7 +12,6 @@ def interpolate_landmarks(group):
     
     # 線形補間を適用
     group[['x', 'y', 'z']] = group[['x', 'y', 'z']].interpolate(method='linear', limit_direction='both')
-    print(group)
     
     return group
 
@@ -35,19 +34,37 @@ if __name__ == "__main__":
         
         df_interpolated = df_interpolated.sort_values(by='original_index').drop(columns='original_index').reset_index(drop=True)
 
-        output_csv_dir = config.output_csv_directory_path + str(row['sign'])
+        #minimum_continuous_hand_language用
+        file_name = row['path'].split("/")
+        output_csv_dir = config.output_csv_directory_path + file_name[3]
         os.makedirs(output_csv_dir, exist_ok=True)
 
-        output_csv_path = output_csv_dir +  "/" + str(row['file_name'])
-        df_interpolated.to_csv(output_csv_path, index=False)
-        print(f"補間したデータを {output_csv_path} に保存しました。")
+
+        output_csv_path = output_csv_dir + "/" + str(row['file_name']) + ".csv"
+        
 
         index_record = {
             'path': output_csv_path,
             'person_number': row['person_number'],
-            'file_name': row['file_name'],
+            'file_name': str(row['file_name']) + ".csv",
             'sign': row['sign']
         }
+        print(output_csv_path)
+        
+
+        # output_csv_dir = config.output_csv_directory_path + str(row['sign'])
+        # os.makedirs(output_csv_dir, exist_ok=True)
+
+        # output_csv_path = output_csv_dir +  "/" + str(row['file_name'])
+        # df_interpolated.to_csv(output_csv_path, index=False)
+        # print(f"補間したデータを {output_csv_path} に保存しました。")
+
+        # index_record = {
+        #     'path': output_csv_path,
+        #     'person_number': row['person_number'],
+        #     'file_name': row['file_name'],
+        #     'sign': row['sign']
+        # }
         index_records.append(index_record)
         
     

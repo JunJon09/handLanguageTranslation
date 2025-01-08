@@ -17,6 +17,7 @@ from functools import partial
 from torch import nn
 import torch.nn.functional as F
 from nltk.metrics.distance import edit_distance
+import itertools
 
 
 def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
@@ -43,7 +44,6 @@ def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
     test_transforms = Compose([
        features.ToTensor()
     ])
-
     train_dataset = dataset.HDF5Dataset(train_hdf5files,
     pre_transforms=pre_transforms, transforms=train_transforms, load_into_ram=config.load_into_ram)
     val_dataset = dataset.HDF5Dataset(val_hdf5files,
@@ -67,7 +67,7 @@ def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
 
     return train_dataloader, val_dataloader, test_dataloader, in_channels
 
-def forward(model, feature, tokens, feature_pad_mask, tokens_pad_mask,
+def forward(model, feature, tokens, feature_pad_mask, tokens_pad_mask, spatial_feature,
             tokens_causal_mask=None):
     
     if isinstance(model, models.CNNTransformerModel):
@@ -124,7 +124,10 @@ def train_loop_csir_s2s(dataloader,
         feature_pad_mask = batch_sample["feature_pad_mask"]
         tokens = batch_sample["token"]
         tokens_pad_mask = batch_sample["token_pad_mask"]
-
+        spatial_feature = "Kk"
+        """
+        追加でデータが
+        """
         check_tokens_format(tokens, tokens_pad_mask, start_id, end_id)
 
         feature = feature.to(device)
@@ -138,7 +141,8 @@ def train_loop_csir_s2s(dataloader,
         pred_start = time.perf_counter()
         preds, tokens_causal_mask = forward(model, feature, tokens,
                                             feature_pad_mask, tokens_pad_mask,
-                                            tokens_causal_mask)
+                                            spatial_feature, tokens_causal_mask
+                                            )
         pred_end = time.perf_counter()
         pred_times.append([frames, pred_end - pred_start])
 
@@ -329,8 +333,18 @@ def test_loop_csir_s2s(dataloader,
                 print(f"Preds_wo_keywords: {pred_ids}")
 
             ref_length = len(tokens)
+            tokens = tokens.tolist()
+            pred_ids = [int(x) for x in pred_ids]
+            print(pred_ids)
+            pred_ids = remove_consecutive_duplicates([int(x) for x in pred_ids]) # [7, 6]
+
+
             wer = edit_distance(tokens, pred_ids)
+            print("*"*100)
+            print(ref_length, tokens, pred_ids, wer)
+            print("*"*100)
             wer /= ref_length
+            print(wer)
             total_wer += wer
             if batch_idx < verbose_num:
                 print(f"WER: {wer}")
@@ -345,7 +359,8 @@ def test_loop_csir_s2s(dataloader,
     retval = (awer, pred_times) if return_pred_times else awer
     return retval
 
-
+def remove_consecutive_duplicates(lst):
+    return [key for key, _ in itertools.groupby(lst)]
 
 
 class LabelSmoothingCrossEntropyLoss(nn.Module):

@@ -3,6 +3,7 @@ import cnn_transformer.models.cnn_model as cnn_model
 import cnn_transformer.models.transformer_encoer as encoder
 import cnn_transformer.models.transformer_decoder as decoder
 import cnn_transformer.continuous_sign_language_cnn_transformer.config as model_config
+import cnn_transformer.models.spatial_feature_function as spatial_feature_function
 from torch import nn
 import torch
 import numpy as np
@@ -128,11 +129,15 @@ class CNNTransformerModel(nn.Module):
     """
         # Feature extraction.
         # `[N, C, T, J] -> [N, T, C, J] -> [N, T, C*J] -> [N, T, C']`
-
         N, C, T, J = src_feature.shape #バッチサイズ, チャネル数, フレーム, 骨格座標
         # 形状を [N, C, T, J] -> [N, C* J, T] に変換
+        spatial_feature = spatial_feature_function.get_spatial(src_feature)
+        spatial_feature = spatial_feature.permute(0, 2, 1)
         src_feature = src_feature.view(N, C * J, T)
         #CNNの処理 [N, L, T] -> [N, T', L']
+        print(src_feature.shape, spatial_feature.shape)
+        src_feature = torch.cat((src_feature, spatial_feature), dim=1)
+        print(src_feature.shape)
         src_feature = self.cnn_extractor(src_feature)
 
         enc_feature = self.tr_encoder(
@@ -162,7 +167,11 @@ class CNNTransformerModel(nn.Module):
         # `[N, C, T, J] -> [N, T, C, J] -> [N, T, C*J] -> [N, T, C']`
         N, C, T, J = src_feature.shape #バッチサイズ, チャネル数, フレーム, 骨格座標
         # 形状を [N, C, T, J] -> [N, C* J, T] に変換
+        spatial_feature = spatial_feature_function.get_spatial(src_feature)
+        spatial_feature = spatial_feature.permute(0, 2, 1)
         src_feature = src_feature.view(N, C * J, T)
+        src_feature = torch.cat((src_feature, spatial_feature), dim=1)
+
         #CNNの処理 [N, L, T] -> [N, T', L']
         src_feature = self.cnn_extractor(src_feature)
         enc_feature = self.tr_encoder(

@@ -106,22 +106,25 @@ def restore_minimum_continuous_hand_language(file, i, j):
         person_number = "002"
     elif 10<=j and j<= 14:
         person_number = "003"
-    else:
+    elif 15<=j and j<=19:
         person_number = "004"
-    
+    else:
+        person_number = "005"
+
     return output_csv_path, person_number, csv_path, file_name, folder_name
 
 if __name__ == "__main__":
     movie_files_list = get_movie_files()
     MediaPipeClass = mediapipe_relation.MediaPipeClass()
     index_records = []
-    
+    print(len(movie_files_list), len(movie_files_list[0]))
 
     for i, word_directory in enumerate(movie_files_list):
         for j, file in enumerate(word_directory):
             landmarks_list = MediaPipeClass.get_skeleton_by_mediapipe(file)
             if len(landmarks_list) <= 5 :
                 continue
+            print(i, j, file)
             #NHK
             #output_csv_path, person_number, csv_path, file_name, folder_name = restore_nhk(file, i, j)
             

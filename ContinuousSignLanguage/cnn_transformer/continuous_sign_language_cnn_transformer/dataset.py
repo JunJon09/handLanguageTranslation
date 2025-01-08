@@ -157,7 +157,7 @@ def merge_padded_batch(batch,
                        token_padding_val=0):
     feature_batch = [sample["feature"] for sample in batch]
     token_batch = [sample["token"] for sample in batch]
-
+  
     # ==========================================================
     # Merge feature.
     # ==========================================================
