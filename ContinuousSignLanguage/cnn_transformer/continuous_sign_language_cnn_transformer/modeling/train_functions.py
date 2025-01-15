@@ -335,16 +335,12 @@ def test_loop_csir_s2s(dataloader,
             ref_length = len(tokens)
             tokens = tokens.tolist()
             pred_ids = [int(x) for x in pred_ids]
-            print(pred_ids)
             pred_ids = remove_consecutive_duplicates([int(x) for x in pred_ids]) # [7, 6]
 
 
             wer = edit_distance(tokens, pred_ids)
-            print("*"*100)
-            print(ref_length, tokens, pred_ids, wer)
-            print("*"*100)
+           
             wer /= ref_length
-            print(wer)
             total_wer += wer
             if batch_idx < verbose_num:
                 print(f"WER: {wer}")
@@ -483,12 +479,11 @@ def make_causal_mask(ref_mask,
                              out=causal_mask).unsqueeze(0)
     return causal_mask
 
-def save_model(save_path, model_default_dict, optimizer_dict, epoch, val_loss):
+def save_model(save_path, model_default_dict, optimizer_dict, epoch):
     torch.save({
         'model_state_dict': model_default_dict,
         'optimizer_state_dict': optimizer_dict,
         'epoch': epoch,
-        'val_losses': val_loss,
     }, save_path)
 
     print(f"モデルとオプティマイザの状態を {save_path} に保存しました。")
@@ -507,7 +502,9 @@ def load_model(save_path: str, device: str = "cpu"):
 
     model_loaded = models.CNNTransformerModel(
         in_channels=in_channels,
-         inter_channels=model_config.inter_channels,
+        inter_channels=model_config.inter_channels,
+        kernel_size=model_config.kernel_size,
+        stride=model_config.stride,
         out_channels=out_channels,
         padding_val=pad_token,
         activation=model_config.activation,
@@ -545,8 +542,7 @@ def load_model(save_path: str, device: str = "cpu"):
     optimizer_loaded.load_state_dict(checkpoint['optimizer_state_dict'])
     
     epoch_loaded = checkpoint.get('epoch', None)
-    val_losses_loaded = checkpoint.get('val_losses', None)
     
     print(f"エポック {epoch_loaded} までのモデルをロードしました。")
     
-    return model_loaded, optimizer_loaded, epoch_loaded, val_losses_loaded, test_dataloader, key2token
+    return model_loaded, optimizer_loaded, epoch_loaded, test_dataloader, key2token

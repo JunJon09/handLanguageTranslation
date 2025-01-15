@@ -5,7 +5,7 @@ import torch
 if __name__ == "__main__":
     save_path = os.path.join(model_config.model_save_dir, model_config.model_save_path)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    loaded_model, loaded_optimizer, loaded_epoch, loaded_val_losses, test_dataloader, key2token = functions.load_model(save_path, device)
+    loaded_model, loaded_optimizer, loaded_epoch, test_dataloader, key2token = functions.load_model(save_path, device)
 
     max_seqlen = model_config.max_seqlen
 

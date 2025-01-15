@@ -68,6 +68,8 @@ def main():
     train_losses = []
     val_losses = []
     test_wers = []
+    MIN_WER = float('inf')
+    save_path = os.path.join(model_config.model_save_dir, model_config.model_save_path)
     print("Start training.")
     for epoch in range(epochs):
         print("-" * 80)
@@ -91,6 +93,10 @@ def main():
                 return_pred_times=True,
                 verbose_num=0)
             test_wers.append(wer)
+            if MIN_WER > wer:
+                print("最高値更新", wer)
+                functions.save_model(save_path, model_default_dict=cnn_transformer.state_dict(), optimizer_dict=optimizer.state_dict(), epoch=model_config.epochs)
+                MIN_WER = wer
     train_losses_trans = np.array(train_losses)
     val_losses_trans = np.array(val_losses)
     test_wers_trans = np.array(test_wers)
@@ -100,8 +106,6 @@ def main():
     print(f"Minimum validation loss:{val_losses_trans.min()} at {np.argmin(val_losses_trans)+1} epoch.")
     print(f"Minimum WER:{test_wers_trans.min()} at {np.argmin(test_wers_trans)*eval_every_n_epochs+1} epoch.")
 
-    save_path = os.path.join(model_config.model_save_dir, model_config.model_save_path)
-    functions.save_model(save_path, model_default_dict=cnn_transformer.state_dict(), optimizer_dict=optimizer.state_dict(), epoch=model_config.epochs, val_loss=val_losses_trans)
     print(val_losses_trans)
     plot.loss_plot(val_losses_trans)
     plot.test_data_plot(test_wers_trans)

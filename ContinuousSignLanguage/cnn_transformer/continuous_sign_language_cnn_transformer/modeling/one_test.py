@@ -18,4 +18,5 @@ if __name__ == "__main__":
                 max_seqlen=max_seqlen,
                 return_pred_times=True,
                 verbose_num=0)
+    
     print(f"ロードしたモデルのテスト精度: {wer}%")

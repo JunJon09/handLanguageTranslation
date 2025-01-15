@@ -40,7 +40,7 @@ class CNNFeatureExtractor(nn.Module):
         return out  # 形状: (batch_size, out_channels, reduced_sequence_length)
 
 class CNNLocalFeatureExtractor(nn.Module):
-    def __init__(self, cnn, window_size=25, stride=1):
+    def __init__(self, cnn, window_size=5, stride=1):
         """
         cnn: 1D CNN モジュール（CNNFeatureExtractorのインスタンス）
         window_size: 固定長ウィンドウのフレーム数（例：5）
@@ -59,8 +59,8 @@ class CNNLocalFeatureExtractor(nn.Module):
 
         #固定長ウィンドウへの分割, 時間軸に沿ってウィンドウを作成  # [N, C*J, T] -> [N, C*J, T-window_size+1(now_windows), window_size]
         N, CJ, T = x.shape
-        if int(T) < 25:
-            pad_size = 25 - T
+        if int(T) < 5:
+            pad_size = 5 - T
             # 最終フレームを取得してpad_size分複製
             last_frame = x[:, :, -1].unsqueeze(2).repeat(1, 1, pad_size)
             # 元のテンソルとパディング分を連結
@@ -82,7 +82,7 @@ class CNNLocalFeatureExtractor(nn.Module):
 
         last_frame = features[:, -1:, :]  # 最後のタイムステップを保持するためにスライス
         # 最後のフレームを4回繰り返す: [N, 4, out_channels]
-        repeated_frames = last_frame.repeat(1, 24, 1)
+        repeated_frames = last_frame.repeat(1, 4, 1)
 
         # オリジナルの特徴量に繰り返されたフレームを追加: [N, num_windows + 4, out_channels]
         x_padded = torch.cat([features, repeated_frames], dim=1)
