@@ -28,7 +28,6 @@ class CNNFeatureExtractor(nn.Module):
     def forward(self, x):
         # 入力 x の形状: (batch_size, in_channels, sequence_length)
         identity = x
-        print(x.shape)
         out = self.conv1(x)
         out = self.batch_norm(out)
         out = self.activation(out)

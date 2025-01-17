@@ -135,9 +135,7 @@ class CNNTransformerModel(nn.Module):
         spatial_feature = spatial_feature.permute(0, 2, 1)
         src_feature = src_feature.view(N, C * J, T)
         #CNNの処理 [N, L, T] -> [N, T', L']
-        print(src_feature.shape, spatial_feature.shape)
         src_feature = torch.cat((src_feature, spatial_feature), dim=1)
-        print(src_feature.shape)
         src_feature = self.cnn_extractor(src_feature)
 
         enc_feature = self.tr_encoder(

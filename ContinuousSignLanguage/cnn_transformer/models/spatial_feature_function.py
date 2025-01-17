@@ -25,7 +25,6 @@ def get_spatial(feature):
         spatial_feature.append([a+ b for a, b in zip(left_spatial_feature, right_spatial_feature)])
 
     spatial_feature = torch.tensor(spatial_feature)
-    print(spatial_feature.shape)
     return spatial_feature
 
 def append_spatial_feature(feature):
