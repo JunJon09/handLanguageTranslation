@@ -2,7 +2,7 @@
 # GLOBALS                                                                       #
 #################################################################################
 
-PROJECT_NAME = continuous_sign_language_transformer
+PROJECT_NAME = 1dcnn_transformer_encoder
 PYTHON_VERSION = 3.10
 PYTHON_INTERPRETER = python
 
@@ -29,14 +29,14 @@ clean:
 ## Lint using flake8 and black (use `make format` to do formatting)
 .PHONY: lint
 lint:
-	flake8 continuous_sign_language_transformer
-	isort --check --diff --profile black continuous_sign_language_transformer
-	black --check --config pyproject.toml continuous_sign_language_transformer
+	flake8 continuous_sign_language
+	isort --check --diff --profile black continuous_sign_language
+	black --check --config pyproject.toml continuous_sign_language
 
 ## Format source code with black
 .PHONY: format
 format:
-	black --config pyproject.toml continuous_sign_language_transformer
+	black --config pyproject.toml continuous_sign_language
 
 
 
@@ -51,7 +51,7 @@ format:
 ## Make Dataset
 .PHONY: data
 data: requirements
-	$(PYTHON_INTERPRETER) continuous_sign_language_transformer/dataset.py
+	$(PYTHON_INTERPRETER) continuous_sign_language/dataset.py
 
 
 #################################################################################

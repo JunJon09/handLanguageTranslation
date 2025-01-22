@@ -1,4 +1,4 @@
-# cnn_transformer_encoder
+# 1dcnn_transformer_encoder
 
 <a target="_blank" href="https://cookiecutter-data-science.drivendata.org/">
     <img src="https://img.shields.io/badge/CCDS-Project%20template-328F97?logo=cookiecutter" />
@@ -27,7 +27,7 @@ A short description of the project.
 │                         `1.0-jqp-initial-data-exploration`.
 │
 ├── pyproject.toml     <- Project configuration file with package metadata for 
-│                         cnn_transformer_encoder and configuration for tools like black
+│                         continuous_sign_language and configuration for tools like black
 │
 ├── references         <- Data dictionaries, manuals, and all other explanatory materials.
 │
@@ -39,9 +39,9 @@ A short description of the project.
 │
 ├── setup.cfg          <- Configuration file for flake8
 │
-└── cnn_transformer_encoder   <- Source code for use in this project.
+└── continuous_sign_language   <- Source code for use in this project.
     │
-    ├── __init__.py             <- Makes cnn_transformer_encoder a Python module
+    ├── __init__.py             <- Makes continuous_sign_language a Python module
     │
     ├── config.py               <- Store useful variables and configuration
     │
