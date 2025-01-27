@@ -347,8 +347,12 @@ class PartsBasedNormalization:
             rhand = self._normalize(rhand, self.rhand_origin, self.rhand_unit1, self.rhand_unit2)
             feature[:, :, self.rhand_head : self.rhand_head + self.rhand_num] = rhand
         spatial_feature = np.concatenate((l_spatial_feature, r_spatial_feature), axis=1)
+        # 新しい軸を追加してブロードキャスト
+        T, J = spatial_feature.shape
+        broadcasted = np.broadcast_to(spatial_feature, (len(config.use_features), T, J))  # 形状 (3, T, J)
+        feature = np.concatenate((feature, broadcasted), axis=2)
+        print(feature.shape)
         data["feature"] = feature
-        data["spatial"] = torch.tensor(spatial_feature)
         return data
 
 class ToTensor:
