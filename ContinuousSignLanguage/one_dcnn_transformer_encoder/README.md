@@ -6,6 +6,16 @@
 
 A short description of the project.
 
+## 実行コマンド
+train.pyの場合
+以下のディレクトリで実行してください
+```bash
+/src/ContinuousSignLanguage
+```
+```bash
+python -m one_dcnn_transformer_encoder.continuous_sign_language.modeling.train
+```
+
 ## Project Organization
 
 ```

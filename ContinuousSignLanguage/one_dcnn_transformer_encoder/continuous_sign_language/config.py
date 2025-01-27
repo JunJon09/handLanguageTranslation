@@ -1,32 +1,26 @@
-from pathlib import Path
+import numpy as np
+#dataset
+read_dataset_dir = "../hdf5/minimum_continuous_hand_language/"
+test_number = "005"
+val_number = "004"
 
-from dotenv import load_dotenv
-from loguru import logger
+# features 
+USE_LIP = [
+    61, 185, 40, 39, 37, 0, 267, 269, 270, 409,
+    291, 375, 321, 405, 314, 17, 84, 181, 91, 146,
+    78, 191, 80, 81, 82, 13, 312, 311, 310, 415,
+    308, 324, 318, 402, 317, 14, 87, 178, 88, 95]
 
-# Load environment variables from .env file if it exists
-load_dotenv()
+USE_NOSE = [1, 2, 98, 327]
+USE_REYE = [33, 7, 163, 144, 145, 153, 154, 155, 133,
+            246, 161, 160, 159, 158, 157, 173]
+USE_LEYE = [263, 249, 390, 373, 374, 380, 381, 382, 362,
+            466, 388, 387, 386, 385, 384, 398]
 
-# Paths
-PROJ_ROOT = Path(__file__).resolve().parents[1]
-logger.info(f"PROJ_ROOT path is: {PROJ_ROOT}")
+USE_LHAND = np.arange(468, 468+21)
+USE_POSE = np.array([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]) + 468 + 21
+USE_RHAND = np.arange(468+21+33, 468+21+33+21)
 
-DATA_DIR = PROJ_ROOT / "data"
-RAW_DATA_DIR = DATA_DIR / "raw"
-INTERIM_DATA_DIR = DATA_DIR / "interim"
-PROCESSED_DATA_DIR = DATA_DIR / "processed"
-EXTERNAL_DATA_DIR = DATA_DIR / "external"
-
-MODELS_DIR = PROJ_ROOT / "models"
-
-REPORTS_DIR = PROJ_ROOT / "reports"
-FIGURES_DIR = REPORTS_DIR / "figures"
-
-# If tqdm is installed, configure loguru with tqdm.write
-# https://github.com/Delgan/loguru/issues/135
-try:
-    from tqdm import tqdm
-
-    logger.remove(0)
-    logger.add(lambda msg: tqdm.write(msg, end=""), colorize=True)
-except ModuleNotFoundError:
-    pass
+use_features = ["x", "y", "z"]
+load_into_ram = True
+batch_size = 32
