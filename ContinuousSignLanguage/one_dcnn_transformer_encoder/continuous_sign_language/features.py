@@ -351,7 +351,6 @@ class PartsBasedNormalization:
         T, J = spatial_feature.shape
         broadcasted = np.broadcast_to(spatial_feature, (len(config.use_features), T, J))  # 形状 (3, T, J)
         feature = np.concatenate((feature, broadcasted), axis=2)
-        print(feature.shape)
         data["feature"] = feature
         return data
 
