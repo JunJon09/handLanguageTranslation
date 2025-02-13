@@ -75,7 +75,7 @@ class Bottleneck1D(nn.Module):
 
 # ResNet1D クラスの定義
 class ResNet1D(nn.Module):
-    def __init__(self, block, layers, num_classes=1000, in_channels=1):
+    def __init__(self, block, layers, kernel_size=3, stride=1 , padding=0, num_classes=1000, in_channels=1, out_channels=64, bias=False):
         """
         Args:
             block: 使用するブロッククラス（BasicBlock1DまたはBottleneck1D）
@@ -84,17 +84,23 @@ class ResNet1D(nn.Module):
             in_channels: 入力データのチャンネル数
         """
         super(ResNet1D, self).__init__()  # 引数なしで呼び出す
-        self.in_channels = 64
-        self.conv1 = nn.Conv1d(in_channels, 64, kernel_size=7, stride=2,
-                               padding=3, bias=False)
-        self.bn1 = nn.BatchNorm1d(64)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.bias = bias
+        self.conv1 = nn.Conv1d(self.in_channels, self.out_channels, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, bias=self.bias)
+        self.bn1 = nn.BatchNorm1d(self.out_channels)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool1d(kernel_size=3, stride=2, padding=1)
+
         # 各ResNetの層
+        self.in_channels = 64
         self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=self.stride)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=self.stride)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=self.stride)
         self.avgpool = nn.AdaptiveAvgPool1d(1)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
@@ -166,19 +172,19 @@ def resnet152_1d(num_classes=1000, in_channels=1):
     return ResNet1D(Bottleneck1D, [3, 8, 36, 3], num_classes=num_classes, in_channels=in_channels)
 
 # 使用例
-# if __name__ == "__main__":
-#     # 入力テンソルの作成
-#     N, C, T, J = 32, 3, 100, 25  # 例
-#     input_tensor = torch.randn(N, C, T, J)  # 形状: [8, 3, 100, 25]
+if __name__ == "__main__":
+    # 入力テンソルの作成
+    N, C, T, J = 32, 3, 100, 25  # 例
+    input_tensor = torch.randn(N, C, T, J)  # 形状: [8, 3, 100, 25]
     
-#     # 入力テンソルの形状を [N, C * J, T] に変換
-#     input_tensor = input_tensor.permute(0, 3, 1, 2).contiguous().view(N, C * J, T)  # [8, 75, 100]
+    # 入力テンソルの形状を [N, C * J, T] に変換
+    input_tensor = input_tensor.permute(0, 3, 1, 2).contiguous().view(N, C * J, T)  # [8, 75, 100]
     
-#     # モデルのインスタンス化
-#     num_classes = 100  # 例: 100クラス分類
-#     in_channels = C * J  # 3 * 25 = 75
-#     model = resnet18_1d(num_classes=num_classes, in_channels=in_channels)
+    # モデルのインスタンス化
+    num_classes = 100  # 例: 100クラス分類
+    in_channels = C * J  # 3 * 25 = 75
+    model = resnet18_1d(num_classes=num_classes, in_channels=in_channels)
     
-#     # フォワードパス
-#     output = model(input_tensor)
-#     print(output.shape)  # 期待される形状: [8, 100]
+    # フォワードパス
+    output = model(input_tensor)
+    print(output.shape)  # 期待される形状: [8, 100]
