@@ -75,7 +75,7 @@ class Bottleneck1D(nn.Module):
 
 # ResNet1D クラスの定義
 class ResNet1D(nn.Module):
-    def __init__(self, block, layers, kernel_size=3, stride=1 , padding=0, num_classes=1000, in_channels=1, out_channels=64, bias=False):
+    def __init__(self, block, layers, kernel_size=3, stride=1 , padding=0, num_classes=1000, in_channels=1, bias=False):
         """
         Args:
             block: 使用するブロッククラス（BasicBlock1DまたはBottleneck1D）
@@ -85,7 +85,7 @@ class ResNet1D(nn.Module):
         """
         super(ResNet1D, self).__init__()  # 引数なしで呼び出す
         self.in_channels = in_channels
-        self.out_channels = out_channels
+        self.out_channels = 64 #はじめのCNNの出力層は固定値にしている
         self.kernel_size = kernel_size
         self.stride = stride
         self.padding = padding
@@ -148,16 +148,16 @@ class ResNet1D(nn.Module):
         x = self.layer2(x)  # layer2
         x = self.layer3(x)  # layer3
         x = self.layer4(x)  # layer4
-
+        print(x.shape)
         x = self.avgpool(x)  # グローバル平均プーリング
         x = torch.flatten(x, 1)  # フラット化
-        x = self.fc(x)  # 全結合層
+        #x = self.fc(x)  # 全結合層
 
         return x
 
 # 各ResNetバージョン用のファクトリ関数
-def resnet18_1d(num_classes=1000, in_channels=1):
-    return ResNet1D(BasicBlock1D, [2, 2, 2, 2], num_classes=num_classes, in_channels=in_channels)
+def resnet18_1d(num_classes=1000, in_channels=1, kernel_size=3, stride=1 , padding=0, bias=False):
+    return ResNet1D(BasicBlock1D, [2, 2, 2, 2], num_classes=num_classes, in_channels=in_channels, kernel_size=kernel_size, stride=stride , padding=padding, bias=bias)
 
 def resnet34_1d(num_classes=1000, in_channels=1):
     return ResNet1D(BasicBlock1D, [3, 4, 6, 3], num_classes=num_classes, in_channels=in_channels)
@@ -172,19 +172,19 @@ def resnet152_1d(num_classes=1000, in_channels=1):
     return ResNet1D(Bottleneck1D, [3, 8, 36, 3], num_classes=num_classes, in_channels=in_channels)
 
 # 使用例
-if __name__ == "__main__":
-    # 入力テンソルの作成
-    N, C, T, J = 32, 3, 100, 25  # 例
-    input_tensor = torch.randn(N, C, T, J)  # 形状: [8, 3, 100, 25]
+# if __name__ == "__main__":
+#     # 入力テンソルの作成
+#     N, C, T, J = 32, 3, 100, 25  # 例
+#     input_tensor = torch.randn(N, C, T, J)  # 形状: [8, 3, 100, 25]
     
-    # 入力テンソルの形状を [N, C * J, T] に変換
-    input_tensor = input_tensor.permute(0, 3, 1, 2).contiguous().view(N, C * J, T)  # [8, 75, 100]
+#     # 入力テンソルの形状を [N, C * J, T] に変換
+#     input_tensor = input_tensor.permute(0, 3, 1, 2).contiguous().view(N, C * J, T)  # [8, 75, 100]
     
-    # モデルのインスタンス化
-    num_classes = 100  # 例: 100クラス分類
-    in_channels = C * J  # 3 * 25 = 75
-    model = resnet18_1d(num_classes=num_classes, in_channels=in_channels)
+#     # モデルのインスタンス化
+#     num_classes = 100  # 例: 100クラス分類
+#     in_channels = C * J  # 3 * 25 = 75
+#     model = resnet18_1d(num_classes=num_classes, in_channels=in_channels, kernel_size=3, stride=1 , padding=0, bias=False)
     
-    # フォワードパス
-    output = model(input_tensor)
-    print(output.shape)  # 期待される形状: [8, 100]
+#     # フォワードパス
+#     output = model(input_tensor)
+#     print(output.shape)  # 期待される形状: [8, 100]

@@ -9,7 +9,7 @@ class OnedCNNTransformerEncoderModel(nn.Module):
         kernel_size,
         inter_channels,
         stride,
-        out_channels,
+        padding,
         padding_val,
         activation="relu",
         tren_num_layers=1,
@@ -36,17 +36,14 @@ class OnedCNNTransformerEncoderModel(nn.Module):
         trde_norm_eps=1e-5,
         trde_norm_first=True,
         trde_add_bias=True,
-        trde_add_tailnorm=True
+        trde_add_tailnorm=True,
+        num_classes=100
     ):
         super().__init__()
 
         #1DCNNモデル
-        cnn_model = cnn.CNNFeatureExtractor(
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            stride=stride)
-        
-        self.linear = nn.Linear(inter_channels, inter_channels)
+        self.cnn_model = cnn.resnet18_1d(num_classes=num_classes, in_channels=in_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
+        print(self.cnn_model)
 
         #TransformerEncoderモデル
         enlayer = encoder.TransformerEncoderLayer(
