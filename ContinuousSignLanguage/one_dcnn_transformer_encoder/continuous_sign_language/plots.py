@@ -1,29 +1,33 @@
-from pathlib import Path
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+import cnn_transformer.continuous_sign_language_cnn_transformer.config as config
 
-import typer
-from loguru import logger
-from tqdm import tqdm
+def train_loss_plot(losses_default):
 
-from continuous_sign_language.config import FIGURES_DIR, PROCESSED_DATA_DIR
+    plt.grid(axis="y", linestyle="dotted", color="k")
 
-app = typer.Typer()
-
-
-@app.command()
-def main(
-    # ---- REPLACE DEFAULT PATHS AS APPROPRIATE ----
-    input_path: Path = PROCESSED_DATA_DIR / "dataset.csv",
-    output_path: Path = FIGURES_DIR / "plot.png",
-    # -----------------------------------------
-):
-    # ---- REPLACE THIS WITH YOUR OWN CODE ----
-    logger.info("Generating plot from data...")
-    for i in tqdm(range(10), total=10):
-        if i == 5:
-            logger.info("Something happened for iteration 5.")
-    logger.success("Plot generation complete.")
-    # -----------------------------------------
+    xs = np.arange(1, len(losses_default)+1)
+    plt.plot(xs, losses_default, label="Default", marker=".")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.ylim([0.0, 2.5])
+    plt.legend()
+    plt.grid(True)
+    save_path = os.path.join(config.plot_save_dir, config.plot_loss_save_path)
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
 
 
-if __name__ == "__main__":
-    app()
+def test_data_plot(test_accs_default):
+    plt.grid(axis="y", linestyle="dotted", color="k")
+
+    xs = np.arange(1, len(test_accs_default)+1)
+    plt.plot(xs, test_accs_default, label="Default", marker=".")
+    plt.xlabel("Epochs")
+    plt.ylabel("Accuracy")
+    plt.ylim([0.0, 100.0])
+    plt.legend()
+    save_path = os.path.join(config.plot_save_dir, config.plot_accuracy_save_path)
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()

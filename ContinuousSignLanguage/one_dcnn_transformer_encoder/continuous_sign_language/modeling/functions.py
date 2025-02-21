@@ -5,6 +5,11 @@ from torchvision.transforms import Compose
 import os
 from functools import partial
 from torch.utils.data import DataLoader
+import time
+from torch import nn
+import numpy as np
+import torch
+
 
 def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
     _, use_landmarks = features.get_fullbody_landmarks()
@@ -51,3 +56,134 @@ def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
     in_channels = len(use_landmarks) * len(config.use_features)
 
     return train_dataloader, val_dataloader, test_dataloader, in_channels
+
+
+def train_loop(dataloader, model, optimizer, device, return_pred_times=False):
+    num_batches = len(dataloader)
+    train_loss = 0
+    size = len(dataloader.dataset)
+
+    # Collect prediction time.
+    pred_times = []
+
+    # Switch to training mode.
+    model.train()
+    # Main loop.
+    print("Start training.")
+    start = time.perf_counter()
+    tokens_causal_mask = None
+    for batch_idx, batch_sample in enumerate(dataloader):
+        feature = batch_sample["feature"]
+        feature_pad_mask = batch_sample["feature_pad_mask"]
+        tokens = batch_sample["token"]
+        tokens_pad_mask = batch_sample["token_pad_mask"]
+
+        #check_tokens_format(tokens, tokens_pad_mask, start_id, end_id)
+
+        feature = feature.to(device)
+        feature_pad_mask = feature_pad_mask.to(device)
+        tokens = tokens.to(device)
+        tokens_pad_mask = tokens_pad_mask.to(device)
+
+        frames = feature.shape[-2]
+
+        # Predict.
+
+        pred_start = time.perf_counter()
+        loss, log_probs = model.forward(
+            src_feature=feature,
+            tgt_feature=tokens,
+            src_causal_mask=None,      # オプション、今回は使用しない
+            src_padding_mask=None,     # オプション、今回は使用しない
+            input_lengths=100, #後修正
+            target_lengths=30, #修正
+            is_training=True
+        )
+        pred_end = time.perf_counter()
+        pred_times.append([frames, pred_end - pred_start])
+
+        # Back propagation.
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        train_loss += loss.item()
+
+        # Print current loss per 100 steps.
+        if batch_idx % 100 == 0:
+            loss = loss.item()
+            steps = batch_idx * len(feature)
+            print(f"loss:{loss:>7f} [{steps:>5d}/{size:>5d}]")
+    print(f"Done. Time:{time.perf_counter()-start}")
+    # Average loss.
+    train_loss /= num_batches
+    print("Training performance: \n",
+          f"Avg loss:{train_loss:>8f}\n")
+    pred_times = np.array(pred_times)
+    retval = (train_loss, pred_times) if return_pred_times else train_loss
+    return retval
+
+def val_loop(dataloader, model, device, return_pred_times=False):
+    num_batches = len(dataloader)
+    val_loss = 0
+
+    # Collect prediction time.
+    pred_times = []
+
+    # Switch to evaluation mode.
+    model.eval()
+    # Main loop.
+    print("Start validation.")
+    start = time.perf_counter()
+    tokens_causal_mask = None
+    with torch.no_grad():
+        for batch_idx, batch_sample in enumerate(dataloader):
+            feature = batch_sample["feature"]
+            feature_pad_mask = batch_sample["feature_pad_mask"]
+            tokens = batch_sample["token"]
+            tokens_pad_mask = batch_sample["token_pad_mask"]
+     
+     
+            feature = feature.to(device)
+            feature_pad_mask = feature_pad_mask.to(device)
+            tokens = tokens.to(device)
+            tokens_pad_mask = tokens_pad_mask.to(device)
+     
+            frames = feature.shape[-2]
+     
+            # Predict.
+            pred_start = time.perf_counter()
+            loss, log_probs = model.forward(
+                src_feature=feature,
+                tgt_feature=tokens,
+                src_causal_mask=None,      # オプション、今回は使用しない
+                src_padding_mask=None,     # オプション、今回は使用しない
+                input_lengths=100, #後修正
+                target_lengths=30, #修正
+                is_training=False
+            )
+            pred_end = time.perf_counter()
+            pred_times.append([frames, pred_end - pred_start])
+     
+            # Compute loss.
+            # Preds do not include <start>, so skip that of tokens.
+     
+            val_loss += loss.item()
+    print(f"Done. Time:{time.perf_counter()-start}")
+
+    # Average loss.
+    val_loss /= num_batches
+    print("Validation performance: \n",
+          f"Avg loss:{val_loss:>8f}\n")
+    pred_times = np.array(pred_times)
+    retval = (val_loss, pred_times) if return_pred_times else val_loss
+    return retval
+
+def save_model(save_path, model_default_dict, optimizer_dict, epoch):
+    torch.save({
+        'model_state_dict': model_default_dict,
+        'optimizer_state_dict': optimizer_dict,
+        'epoch': epoch,
+    }, save_path)
+
+    print(f"モデルとオプティマイザの状態を {save_path} に保存しました。")

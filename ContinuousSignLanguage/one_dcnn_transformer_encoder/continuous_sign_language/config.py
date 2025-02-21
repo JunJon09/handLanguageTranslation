@@ -24,3 +24,7 @@ USE_RHAND = np.arange(468+21+33, 468+21+33+21)
 use_features = ["x", "y", "z"]
 load_into_ram = True
 batch_size = 32
+
+#plots
+plot_save_dir = "cnn_transformer/reports/figures"
+plot_train_loss_save_path = "cnn_transformer_loss.png"

@@ -63,7 +63,8 @@ class OnedCNNTransformerEncoderModel(nn.Module):
                src_causal_mask,
                src_padding_mask,
                input_lengths,
-               target_lengths):
+               target_lengths,
+               is_training):
         """
         src_feature:[batch, C, T, J]
         tgt_feature:[batch, max_len]答えをバッチサイズの最大値に合わせてpaddingしている
@@ -89,15 +90,18 @@ class OnedCNNTransformerEncoderModel(nn.Module):
 
         # CTC損失の入力形式に変換: (T', batch, C)
         log_probs = log_probs.permute(1, 0, 2)  # (T', batch, num_classes)
-                # CTC損失を計算
-        loss = self.ctc_loss(
-            log_probs,         # (T', batch, C)
-            tgt_feature,           # (batch, max_target_length)
-            input_lengths,     # (batch,)
-            target_lengths     # (batch,)
-        )
 
-        return loss, log_probs
+        if is_training:
+            # CTC損失を計算
+            loss = self.ctc_loss(
+                log_probs,         # (T', batch, C)
+                tgt_feature,           # (batch, max_target_length)
+                input_lengths,     # (batch,)
+                target_lengths     # (batch,)
+            )
+            return loss, log_probs
+        else:
+            return log_probs
 
 
 # # ダミーデータの生成

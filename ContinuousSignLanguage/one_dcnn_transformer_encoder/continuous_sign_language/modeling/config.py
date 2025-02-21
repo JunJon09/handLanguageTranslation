@@ -27,5 +27,4 @@ eval_every_n_epochs = 1
 max_seqlen = 150
 
 #モデルの保存
-model_save_dir = "cnn_transformer/models"
-model_save_path = "cnn_transformer_model.pth"
+model_save_path = "one_dcnn_transformer_encoder/models/cnn_transformer_model.pth"
