@@ -41,7 +41,7 @@ def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
     test_dataset = dataset.HDF5Dataset(test_hdf5files,
         pre_transforms=pre_transforms, transforms=test_transforms, load_into_ram=config.load_into_ram)
 
-    feature_shape = (len(config.use_features), -1, len(use_landmarks))
+    feature_shape = (len(config.use_features), -1, len(use_landmarks) + config.spatial_spatial_feature)
     token_shape = (-1,)
     num_workers = os.cpu_count()
     merge_fn = partial(dataset.merge_padded_batch,
@@ -53,7 +53,7 @@ def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
     train_dataloader = DataLoader(train_dataset, batch_size=config.batch_size, collate_fn=merge_fn, num_workers=num_workers, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=config.batch_size, collate_fn=merge_fn, num_workers=num_workers, shuffle=False)
     test_dataloader = DataLoader(test_dataset, batch_size=1, collate_fn=merge_fn, num_workers=num_workers, shuffle=False)
-    in_channels = len(use_landmarks) * len(config.use_features)
+    in_channels = (len(use_landmarks) + config.spatial_spatial_feature) * len(config.use_features)
 
     return train_dataloader, val_dataloader, test_dataloader, in_channels
 
@@ -89,14 +89,18 @@ def train_loop(dataloader, model, optimizer, device, return_pred_times=False):
 
         # Predict.
 
+        input_lengths = [len(feature[i][0]) / 2 -1 if len(feature[i][0])%2==0 else len(feature[i][0])//2 for i in range(len(feature))]
+        input_lengths = torch.tensor(input_lengths, dtype=torch.long)
+        target_lengths = [len(tokens[i]) for i in range(len(tokens))]
+        target_lengths = torch.tensor(target_lengths, dtype=torch.long)
         pred_start = time.perf_counter()
         loss, log_probs = model.forward(
             src_feature=feature,
             tgt_feature=tokens,
             src_causal_mask=None,      # オプション、今回は使用しない
             src_padding_mask=None,     # オプション、今回は使用しない
-            input_lengths=100, #後修正
-            target_lengths=30, #修正
+            input_lengths=input_lengths, #後修正
+            target_lengths=target_lengths, #修正
             is_training=True
         )
         pred_end = time.perf_counter()
@@ -152,15 +156,19 @@ def val_loop(dataloader, model, device, return_pred_times=False):
             frames = feature.shape[-2]
      
             # Predict.
+            input_lengths = [len(feature[i][0]) / 2 -1 if len(feature[i][0])%2==0 else len(feature[i][0])//2 for i in range(len(feature))]
+            input_lengths = torch.tensor(input_lengths, dtype=torch.long)
+            target_lengths = [len(tokens[i]) for i in range(len(tokens))]
+            target_lengths = torch.tensor(target_lengths, dtype=torch.long)
             pred_start = time.perf_counter()
             loss, log_probs = model.forward(
                 src_feature=feature,
                 tgt_feature=tokens,
                 src_causal_mask=None,      # オプション、今回は使用しない
                 src_padding_mask=None,     # オプション、今回は使用しない
-                input_lengths=100, #後修正
-                target_lengths=30, #修正
-                is_training=False
+                input_lengths=input_lengths, #後修正
+                target_lengths=target_lengths, #修正
+                is_training=True
             )
             pred_end = time.perf_counter()
             pred_times.append([frames, pred_end - pred_start])

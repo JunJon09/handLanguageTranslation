@@ -24,6 +24,7 @@ USE_RHAND = np.arange(468+21+33, 468+21+33+21)
 use_features = ["x", "y", "z"]
 load_into_ram = True
 batch_size = 32
+spatial_spatial_feature = 25 * 2
 
 #plots
 plot_save_dir = "cnn_transformer/reports/figures"

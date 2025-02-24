@@ -27,8 +27,6 @@ class OnedCNNTransformerEncoderModel(nn.Module):
 
         #1DCNNモデル
         self.cnn_model = cnn.resnet18_1d(num_classes=num_classes, in_channels=in_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
-        print(self.cnn_model)
-
 
         #TransformerEncoderモデル
         enlayer = nn.TransformerEncoderLayer(
