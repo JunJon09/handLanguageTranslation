@@ -24,7 +24,6 @@ def read_dataset(input_dir = config.read_dataset_dir):
     VOCAB = len(key2token)
     key2token["<pad>"] = VOCAB
     key2token["<blank>"] = VOCAB + 1
-    VOCAB = len(key2token)
 
     return train_hdf5files, val_hdf5files, test_hdf5files, key2token
 

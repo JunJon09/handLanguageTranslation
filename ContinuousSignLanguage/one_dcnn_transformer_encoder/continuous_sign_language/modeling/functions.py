@@ -9,6 +9,7 @@ import time
 from torch import nn
 import numpy as np
 import torch
+from jiwer import wer, cer, mer
 
 
 def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
@@ -187,6 +188,74 @@ def val_loop(dataloader, model, device, return_pred_times=False):
     retval = (val_loss, pred_times) if return_pred_times else val_loss
     return retval
 
+def test_loop(dataloader,
+                       model,
+                       device,
+                       return_pred_times=False,
+                       blank_id=100):
+    size = len(dataloader.dataset)
+    hypothesis_text_list = []
+    reference_text_list = []
+
+    # Collect prediction time.
+    pred_times = []
+    # Switch to evaluation mode.
+    model.eval()
+    # Main loop.
+    print("Start test.")
+    start = time.perf_counter()
+    with torch.no_grad():
+        for batch_idx, batch_sample in enumerate(dataloader):
+            feature = batch_sample["feature"]
+            feature_pad_mask = batch_sample["feature_pad_mask"]
+            tokens = batch_sample["token"]
+            tokens_pad_mask = batch_sample["token_pad_mask"]
+     
+            feature = feature.to(device)
+            tokens = tokens.to(device)
+            tokens_pad_mask = tokens_pad_mask.to(device)
+     
+            frames = feature.shape[-2]
+     
+            # Predict.
+            pred_start = time.perf_counter()
+            log_probs = model.forward(
+                src_feature=feature,
+                tgt_feature=tokens,
+                src_causal_mask=None,      # オプション、今回は使用しない
+                src_padding_mask=None,     # オプション、今回は使用しない
+                input_lengths=100, #後修正
+                target_lengths=20, #修正
+                is_training=False,
+                blank_id=blank_id
+            )
+            pred_end = time.perf_counter()
+            pred_times.append([frames, pred_end - pred_start])
+
+            tokens = tokens.tolist()
+            reference_text = [' '.join(map(str, seq)) for seq in tokens]
+            hypothesis_text = [' '.join(map(str, seq)) for seq in log_probs]
+            
+            reference_text_list.append(reference_text[0])
+            hypothesis_text_list.append(hypothesis_text[0])
+           
+            
+
+    print(f"Done. Time:{time.perf_counter()-start}")
+
+    # Average WER.
+    print(reference_text_list, hypothesis_text_list)
+    awer = wer(reference_text_list, hypothesis_text_list)
+    print("Test performance: \n",
+          f"Avg WER:{awer:>0.1f}%\n")
+    pred_times = np.array(pred_times)
+    error_rate_cer = cer(reference_text_list, hypothesis_text_list)
+    error_rate_mer = mer(reference_text_list, hypothesis_text_list)
+    print(f"Overall CER: {error_rate_cer}")
+    print(f"Overall MER: {error_rate_mer}")
+    retval = (awer, pred_times) if return_pred_times else awer
+    return retval
+
 def save_model(save_path, model_default_dict, optimizer_dict, epoch):
     torch.save({
         'model_state_dict': model_default_dict,
@@ -195,3 +264,20 @@ def save_model(save_path, model_default_dict, optimizer_dict, epoch):
     }, save_path)
 
     print(f"モデルとオプティマイザの状態を {save_path} に保存しました。")
+
+def load_model(model, save_path: str, device: str = "cpu"):
+
+    checkpoint = torch.load(save_path, map_location=device)
+    
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model.to(device)
+    
+    # オプティマイザの再構築
+    optimizer_loaded = torch.optim.Adam(model.parameters(), lr=3e-4)
+    optimizer_loaded.load_state_dict(checkpoint['optimizer_state_dict'])
+    
+    epoch_loaded = checkpoint.get('epoch', None)
+    
+    print(f"エポック {epoch_loaded} までのモデルをロードしました。")
+    
+    return model, optimizer_loaded, epoch_loaded

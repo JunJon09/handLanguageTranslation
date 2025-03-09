@@ -30,8 +30,8 @@ def model_train():
         batch_first=model_config.batch_first,
         tren_norm_first=model_config.tren_norm_first,
         tren_add_bias=model_config.tren_add_bias,
-        num_classes=100,
-        blank_idx=VOCAB - 1,
+        num_classes=out_channels,
+        blank_idx=VOCAB,
     )
 
     #初期値を確認

@@ -295,7 +295,6 @@ def test_loop_csir_s2s(dataloader,
             feature = batch_sample["feature"]
             tokens = batch_sample["token"]
             tokens_pad_mask = batch_sample["token_pad_mask"]
-     
             check_tokens_format(tokens, tokens_pad_mask, start_id, end_id)
      
             feature = feature.to(device)
@@ -339,7 +338,7 @@ def test_loop_csir_s2s(dataloader,
 
 
             wer = edit_distance(tokens, pred_ids)
-           
+            print(tokens, pred_ids)
             wer /= ref_length
             total_wer += wer
             if batch_idx < verbose_num:

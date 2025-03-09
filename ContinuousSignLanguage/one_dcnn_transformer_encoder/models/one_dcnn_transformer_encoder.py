@@ -62,7 +62,8 @@ class OnedCNNTransformerEncoderModel(nn.Module):
                src_padding_mask,
                input_lengths,
                target_lengths,
-               is_training):
+               is_training,
+               blank_id=100):
         """
         src_feature:[batch, C, T, J]
         tgt_feature:[batch, max_len]答えをバッチサイズの最大値に合わせてpaddingしている
@@ -99,7 +100,26 @@ class OnedCNNTransformerEncoderModel(nn.Module):
             )
             return loss, log_probs
         else:
-            return log_probs
+            probs = torch.exp(log_probs)  # (T', batch, num_classes)
+    
+            # 最も確率の高いラベルを選択
+            argmax_probs = torch.argmax(probs, dim=2)  # (T', batch)
+            
+            # 転置してバッチ次元を先頭に
+            argmax_probs = argmax_probs.transpose(0, 1)  # (batch, T')
+            
+            decoded_sequences = []
+            for seq in argmax_probs:
+                # 重複を削除し、ブランクを除外
+                decoded = []
+                prev = blank_id
+                for p in seq:
+                    if p != prev and p != blank_id:
+                        decoded.append(p.item())
+                    prev = p
+                decoded_sequences.append(decoded)
+            
+            return decoded_sequences
 
 
 # # ダミーデータの生成

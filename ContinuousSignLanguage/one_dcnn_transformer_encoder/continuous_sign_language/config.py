@@ -27,5 +27,5 @@ batch_size = 32
 spatial_spatial_feature = 25 * 2
 
 #plots
-plot_save_dir = "cnn_transformer/reports/figures"
-plot_train_loss_save_path = "cnn_transformer_loss.png"
+plot_save_dir = "one_dcnn_transformer_encoder/reports/figures"
+plot_loss_save_path = "cnn_transformer_loss.png"

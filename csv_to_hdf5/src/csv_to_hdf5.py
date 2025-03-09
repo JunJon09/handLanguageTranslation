@@ -11,6 +11,7 @@ ROWS_PER_FRAME = 478 + 33 + 21 + 21  # Number of landmarks per frame.
 def get_index_csv_files():
     try:
        track_info = pd.read_csv(config.index_file_path)
+       print(track_info)
     except FileNotFoundError:
         print(f"ディレクトリ '{config.index_file_path}' が存在しません。")
     return track_info
@@ -56,7 +57,6 @@ def landmarks_csv_to_hdf5(track_info:list , output_dir: str, dictionary: dict, c
                 #minimum_continuous_hand_language
                 sign = [data for data in info[3].split(",")]
                 token = np.array(sign, dtype=int)
-                print(token)
                 
                 assert pid == upid, f"{pid}:{upid}"
                 track_path = "../.." + path

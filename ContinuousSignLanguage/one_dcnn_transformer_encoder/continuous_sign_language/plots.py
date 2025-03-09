@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-import cnn_transformer.continuous_sign_language_cnn_transformer.config as config
+import one_dcnn_transformer_encoder.continuous_sign_language.config as config
 
 def train_loss_plot(losses_default):
 
@@ -15,6 +15,7 @@ def train_loss_plot(losses_default):
     plt.legend()
     plt.grid(True)
     save_path = os.path.join(config.plot_save_dir, config.plot_loss_save_path)
+    print(save_path)
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
 

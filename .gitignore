@@ -3,6 +3,8 @@
 *.DS_Store
 *.pyc
 *pth
+*.env
+/one_test/*
 /data/
 /csv/
 /hdf5/
