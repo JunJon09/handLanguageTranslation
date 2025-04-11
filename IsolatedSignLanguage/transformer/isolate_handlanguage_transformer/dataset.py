@@ -27,7 +27,7 @@ def read_dataset(input_dir: Path = config.read_dataset_dir) -> Tuple[List, List,
     dictionary = [fin for fin in files if ".json" in fin.name][0]
     with open(dictionary, "r") as f:
         key2token = json.load(f)
-
+    key2token["<sos>"] = len(key2token)
     VOCAB = len(key2token)
 
 

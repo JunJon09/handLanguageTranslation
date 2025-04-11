@@ -14,7 +14,7 @@ def read_dataset(input_dir = config.read_dataset_dir):
     files = list(dataset_dir.iterdir())
     hdf5_files = [fin for fin in files if ".hdf5" in fin.name]
 
-    train_hdf5files = [fin for fin in hdf5_files if config.test_number not in fin.name]
+    train_hdf5files = [fin for fin in hdf5_files if config.test_number not in fin.name and config.val_number not in fin.name]
     val_hdf5files = [fin for fin in hdf5_files if config.val_number in fin.name]
     test_hdf5files = [fin for fin in hdf5_files if config.test_number in fin.name]
     dictionary = [fin for fin in files if ".json" in fin.name][0]
@@ -158,6 +158,7 @@ def merge_padded_batch(batch,
     # ==========================================================
     # `[B, C, T, J]`
     merged_shape = [len(batch), *feature_shape]
+
     # Use maximum frame length in a batch as padded length.
     if merged_shape[2] == -1:
         tlen = max([feature.shape[1] for feature in feature_batch])

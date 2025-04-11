@@ -26,20 +26,20 @@ class MediaPipeClass:
 
         fps = cap.get(cv2.CAP_PROP_FPS)
 
-        with mp_face_mesh.FaceMesh(static_image_mode=False,
-                                    max_num_faces=1,
-                                    refine_landmarks=True,
-                                    min_detection_confidence=0.5,
-                                    min_tracking_confidence=0.5) as face_mesh, \
+        with mp_face_mesh.FaceMesh(static_image_mode=True,
+                        max_num_faces=10,
+                        refine_landmarks=True,
+                        min_detection_confidence=0.1,  # 0.5から0.3に下げる
+                        min_tracking_confidence=0.1) as face_mesh, \
             mp_pose.Pose(static_image_mode=False,
-                                    model_complexity=1,
-                                    enable_segmentation=False,
-                                    min_detection_confidence=0.5,
-                                    min_tracking_confidence=0.5) as pose, \
+                        model_complexity=0,  # 1から0に変更してパフォーマンスを改善
+                        enable_segmentation=False,
+                        min_detection_confidence=0.3,
+                        min_tracking_confidence=0.3) as pose, \
             mp_hands.Hands(static_image_mode=False,
-                                    max_num_hands=2,
-                                    min_detection_confidence=0.5,
-                                    min_tracking_confidence=0.5) as hands:
+                        max_num_hands=2,
+                        min_detection_confidence=0.3,
+                        min_tracking_confidence=0.3) as hands:
         
             frame_idx = 0
             while True:

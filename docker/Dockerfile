@@ -13,6 +13,9 @@ RUN apt-get install -y libgl1-mesa-glx libglib2.0-0 libsm6 libxrender1 libxext6 
 RUN apt-get install -y vim less \
   && pip install --upgrade pip \
   && pip install --upgrade setuptools
+  
+RUN apt-get install -y fonts-noto-cjk
+
 
 COPY requirements.txt ./
 RUN pip install -r requirements.txt

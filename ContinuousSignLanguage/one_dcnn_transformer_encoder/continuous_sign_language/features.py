@@ -57,12 +57,12 @@ class PartsBasedNormalization:
         face_origin=[0, 2],
         face_unit1=[7],
         face_unit2=[42],
-        lhand_head=76 + 12,
+        lhand_head=76,
         lhand_num=21,
         lhand_origin=[0, 2, 5, 9, 13, 17],
         lhand_unit1=[0],
         lhand_unit2=[2, 5, 9, 13, 17],
-        pose_head=76,
+        pose_head=76+21,
         pose_num=12,
         pose_origin=[0, 1],
         pose_unit1=[0],
@@ -321,10 +321,11 @@ class PartsBasedNormalization:
     def __call__(self, data: Dict[str, Any]) -> Dict[str, Any]:
         feature = data["feature"]
         if self.face_num > 0:
+            feature[:, :, self.face_head : self.face_head + self.face_num] = 0
             face = feature[:, :, self.face_head : self.face_head + self.face_num]
             face = self._normalize(face, self.face_origin, self.face_unit1, self.face_unit2)
             feature[:, :, self.face_head : self.face_head + self.face_num] = face
-
+        
         if self.lhand_num > 0:
             lhand = feature[:, :, self.lhand_head : self.lhand_head + self.lhand_num]
             l_spatial_feature = self.append_spatial_feature(lhand)
@@ -332,12 +333,14 @@ class PartsBasedNormalization:
                 feature, l_spatial_feature, self.lhand_unit1, self.lhand_unit2
             )
             lhand = self._normalize(lhand, self.lhand_origin, self.lhand_unit1, self.lhand_unit2)
+
             feature[:, :, self.lhand_head : self.lhand_head + self.lhand_num] = lhand
 
         if self.pose_num > 0:
             pose = feature[:, :, self.pose_head : self.pose_head + self.pose_num]
             pose = self._normalize(pose, self.pose_origin, self.pose_unit1, self.pose_unit2)
             feature[:, :, self.pose_head : self.pose_head + self.pose_num] = pose
+
         if self.rhand_num > 0:
             rhand = feature[:, :, self.rhand_head : self.rhand_head + self.rhand_num]
             r_spatial_feature = self.append_spatial_feature(rhand)

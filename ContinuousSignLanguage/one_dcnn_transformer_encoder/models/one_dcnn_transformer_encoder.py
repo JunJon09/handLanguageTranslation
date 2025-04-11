@@ -3,21 +3,25 @@ import cnn_transformer.models.transformer_encoer as encoder
 from torch import nn
 import torch
 
+
 class OnedCNNTransformerEncoderModel(nn.Module):
     def __init__(
         self,
         in_channels,
         kernel_size,
-        inter_channels,
+        cnn_out_channels,
         stride,
         padding,
+        dropout_rate,
+        bias,
+        resNet,
         activation="relu",
         tren_num_layers=1,
         tren_num_heads=1,
         tren_dim_ffw=256,
         tren_dropout=0.1,
         tren_norm_eps=1e-5,
-        batch_first= True,
+        batch_first=True,
         tren_norm_first=True,
         tren_add_bias=True,
         num_classes=100,
@@ -25,10 +29,24 @@ class OnedCNNTransformerEncoderModel(nn.Module):
     ):
         super().__init__()
 
-        #1DCNNモデル
-        self.cnn_model = cnn.resnet18_1d(num_classes=num_classes, in_channels=in_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
+        # 1DCNNモデル
+        # self.cnn_model = cnn.resnet18_1d(num_classes=num_classes, in_channels=in_channels, out_channels=cnn_out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dropout_rate=dropout_rate, bias=bias)
+        self.cnn_model = cnn.create_simple_cnn1layer(
+            in_channels=in_channels,
+            out_channels=cnn_out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dropout_rate=dropout_rate,
+            bias=bias,
+        )
+        # self.cnn_model = cnn.create_simple_cnn2layer(in_channels=in_channels/2,mid_channels=cnn_out_channels, out_channels=cnn_out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dropout_rate=dropout_rate, bias=bias)
 
-        #TransformerEncoderモデル
+        inter_channels = cnn_out_channels if resNet == 0 else 512
+        # TransformerEncoderモデル
+
+        self.input_projection = nn.Linear(in_channels, inter_channels)
+
         enlayer = nn.TransformerEncoderLayer(
             d_model=inter_channels,
             nhead=tren_num_heads,
@@ -38,49 +56,108 @@ class OnedCNNTransformerEncoderModel(nn.Module):
             layer_norm_eps=tren_norm_eps,
             batch_first=batch_first,
             norm_first=tren_norm_first,
-            bias=tren_add_bias
+            bias=tren_add_bias,
         )
         self.tr_encoder = nn.TransformerEncoder(
-            encoder_layer=enlayer,
-            num_layers=tren_num_layers
+            encoder_layer=enlayer, num_layers=tren_num_layers
         )
-        
-         # クラス分類用の線形層
+
+        # クラス分類用の線形層
         self.classifier = nn.Linear(inter_channels, num_classes)
 
         # ログソフトマックス（CTC損失用）
         self.log_softmax = nn.LogSoftmax(dim=-1)
 
         # CTC損失関数
-        self.ctc_loss = nn.CTCLoss(blank=blank_idx, zero_infinity=True)
+        print(f"blank_idx: {blank_idx}")
+        self.ctc_loss = nn.CTCLoss(blank=blank_idx, zero_infinity=False)
 
-
-    def forward(self,
-               src_feature,
-               tgt_feature,
-               src_causal_mask,
-               src_padding_mask,
-               input_lengths,
-               target_lengths,
-               is_training,
-               blank_id=100):
+    def forward(
+        self,
+        src_feature,
+        tgt_feature,
+        src_causal_mask,
+        src_padding_mask,
+        input_lengths,
+        target_lengths,
+        mode,
+        blank_id=100,
+    ):
         """
         src_feature:[batch, C, T, J]
         tgt_feature:[batch, max_len]答えをバッチサイズの最大値に合わせてpaddingしている
-        input_lengths:[batch]1DCNNに通した後のデータ
+        input_lengths:[batch]1D CNNに通した後のデータ
         target_lengths:[batch]tgt_featureで最大値に伸ばしたので本当の長さ
         """
         N, C, T, J = src_feature.shape
         src_feature = src_feature.permute(0, 3, 1, 2).contiguous().view(N, C * J, T)
-        cnn_out = self.cnn_model(src_feature) #[batch, 512, T']
+        # 入力データにNaN値があるかチェック
+        if torch.isnan(src_feature).any():
+            print("警告: 入力src_featureにNaN値が検出されました")
 
-        cnn_out = cnn_out.permute(0, 2, 1)     # (batch, T', 512)
+        # 入力データの統計情報を表示
+
+        # 無限大の値があるかチェック
+        if torch.isinf(src_feature).any():
+            print("警告: 入力src_featureに無限大の値が検出されました")
+        # 数値安定性のための正規化を追加
+        # src_feature形状は[batch, C*J, T]なので、dim=2ではなくdim=1に沿って正規化
+        eps = 1e-5
+        src_mean = src_feature.mean(dim=1, keepdim=True)
+        src_std = src_feature.std(dim=1, keepdim=True) + eps
+        src_feature = (src_feature - src_mean) / src_std
+
+        # 大きすぎる値や小さすぎる値をクリップ
+        src_feature = torch.clamp(src_feature, min=-10.0, max=10.0)
+        # src_featureを転置して(batch, T, C*J)の形状にする
+
+        cnn_out = self.cnn_model(src_feature)  # [batch, 512, T']
+        cnn_out = cnn_out.permute(0, 2, 1)  # (batch, T', 512)
+        if torch.isnan(cnn_out).any():
+            print("層1の出力にNaN値が検出されました")
+            # 問題のある入力値の確認
+            problem_indices = torch.where(torch.isnan(cnn_out))
+            print(
+                f"問題がある入力の要素: {cnn_out[problem_indices[0][0], problem_indices[1][0], problem_indices[2][0]]}"
+            )
+
+       
+
+        # パディングマスクのサイズをCNN出力のシーケンス長に合わせる
+        if src_padding_mask is not None:
+            # 元のシーケンス長
+            original_seq_len = src_padding_mask.shape[1]
+            # CNNを通過した後のシーケンス長
+            cnn_seq_len = cnn_out.shape[1]
+
+            if original_seq_len != cnn_seq_len:
+                print(
+                    f"パディングマスクのサイズを調整: {original_seq_len} -> {cnn_seq_len}"
+                )
+                # シーケンスが短くなった場合は切り詰め
+                if original_seq_len > cnn_seq_len:
+                    src_padding_mask = src_padding_mask[:, :cnn_seq_len]
+                # シーケンスが長くなった場合はパディング（通常はありえないが念のため）
+                else:
+                    padding = torch.zeros(
+                        src_padding_mask.shape[0],
+                        cnn_seq_len - original_seq_len,
+                        device=src_padding_mask.device,
+                        dtype=src_padding_mask.dtype,
+                    )
+                    src_padding_mask = torch.cat([src_padding_mask, padding], dim=1)
 
         tr_out = self.tr_encoder(
-            src=cnn_out,
-            mask=src_causal_mask,
-            src_key_padding_mask=src_padding_mask
+            src=cnn_out, mask=src_causal_mask, src_key_padding_mask=src_padding_mask
         )  # (batch, T', inter_channels)
+
+        if torch.isnan(tr_out).any():
+            print("Transformerの出力にNaN値が検出されました")
+            # 問題のある入力値の確認
+            problem_indices = torch.where(torch.isnan(tr_out))
+            print(
+                f"問題がある入力の要素: {tr_out[problem_indices[0][0], problem_indices[1][0], problem_indices[2][0]]}"
+            )
 
         logits = self.classifier(tr_out)  # (batch, T', num_classes)
 
@@ -90,36 +167,142 @@ class OnedCNNTransformerEncoderModel(nn.Module):
         # CTC損失の入力形式に変換: (T', batch, C)
         log_probs = log_probs.permute(1, 0, 2)  # (T', batch, num_classes)
 
-        if is_training:
+
+        if mode == "train":
             # CTC損失を計算
             loss = self.ctc_loss(
-                log_probs,         # (T', batch, C)
-                tgt_feature,           # (batch, max_target_length)
-                input_lengths,     # (batch,)
-                target_lengths     # (batch,)
+                log_probs,  # (T', batch, C)
+                tgt_feature,  # (batch, max_target_length)
+                input_lengths,  # (batch,)
+                target_lengths,  # (batch,)
             )
             return loss, log_probs
-        else:
-            probs = torch.exp(log_probs)  # (T', batch, num_classes)
-    
-            # 最も確率の高いラベルを選択
-            argmax_probs = torch.argmax(probs, dim=2)  # (T', batch)
-            
-            # 転置してバッチ次元を先頭に
-            argmax_probs = argmax_probs.transpose(0, 1)  # (batch, T')
-            
-            decoded_sequences = []
-            for seq in argmax_probs:
-                # 重複を削除し、ブランクを除外
-                decoded = []
-                prev = blank_id
-                for p in seq:
-                    if p != prev and p != blank_id:
-                        decoded.append(p.item())
-                    prev = p
-                decoded_sequences.append(decoded)
-            
+        elif mode == "eval":
+            loss = self.ctc_loss(
+                log_probs,  # (T', batch, C)
+                tgt_feature,  # (batch, max_target_length)
+                input_lengths,  # (batch,)
+                target_lengths,  # (batch,)
+            )
+            decoded_sequences = beam_search_decode(
+                log_probs, beam_width=10, blank_id=blank_id
+            )
+            return loss, decoded_sequences
+        elif mode == "test":
+            decoded_sequences = beam_search_decode(
+                log_probs, beam_width=10, blank_id=blank_id
+            )
             return decoded_sequences
+
+
+def beam_search_decode(log_probs, beam_width=10, blank_id=0):
+    """
+    ビームサーチを使用したCTCデコーディング
+
+    Args:
+        log_probs (torch.Tensor): ログ確率テンソル (T', batch, num_classes)
+        beam_width (int): ビームの幅
+        blank_id (int): ブランクラベルのID
+
+    Returns:
+        List[List[int]]: デコードされたシーケンス
+    """
+    batch_size = log_probs.size(1)
+    decoded_sequences = []
+
+    for b in range(batch_size):
+        # 1バッチごとにビームサーチを実行
+        seq_probs = log_probs[:, b, :]
+
+        # ビーム初期化
+        beams = [([], 0.0)]
+
+        for t in range(seq_probs.size(0)):
+            new_beams = []
+
+            for prefix, score in beams:
+                # 現在のタイムステップの確率を取得
+                probs = seq_probs[t]
+
+                # 各クラスについて新しいビームを生成
+                for c in range(len(probs)):
+                    # 新しいスコアを計算
+                    new_score = score + probs[c].item()
+
+                    # 同じラベルの連続を避ける
+                    if c == blank_id:
+                        new_beam = (prefix, new_score)
+                    elif not prefix or c != prefix[-1]:
+                        new_beam = (prefix + [c], new_score)
+                    else:
+                        continue
+
+                    new_beams.append(new_beam)
+
+            # ビームの幅を制限
+            new_beams.sort(key=lambda x: x[1], reverse=True)
+            beams = new_beams[:beam_width]
+
+        # 最高スコアのビームを選択
+        best_beam = max(beams, key=lambda x: x[1])[0]
+        decoded_sequences.append(best_beam)
+    return decoded_sequences
+
+
+def soft_beam_search_decode(log_probs, beam_width=10, blank_id=0, lm_weight=0.5):
+    """
+    ソフトマックスと言語モデルを考慮したビームサーチ
+
+    Args:
+        log_probs (torch.Tensor): ログ確率テンソル
+        beam_width (int): ビームの幅
+        blank_id (int): ブランクラベルのID
+        lm_weight (float): 言語モデルの重み
+
+    Returns:
+        List[List[int]]: デコードされたシーケンス
+    """
+
+    # 言語モデルの仮想的な実装（実際の言語モデルに置き換える）
+    def language_model_score(sequence):
+        # 単純な長さペナルティ（実際のタスクに合わせて調整）
+        return -len(sequence)
+
+    batch_size = log_probs.size(1)
+    decoded_sequences = []
+
+    for b in range(batch_size):
+        # バッチごとの処理
+        seq_probs = log_probs[:, b, :]
+
+        # マルチビームサーチ
+        beams = [([], 0.0)]
+
+        for t in range(seq_probs.size(0)):
+            candidates = []
+
+            for prefix, score in beams:
+                for c in range(seq_probs.size(1)):
+                    # 新しいスコア計算
+                    new_score = (
+                        score
+                        + seq_probs[t, c].item()  # 音響モデルスコア
+                        + lm_weight
+                        * language_model_score(prefix + [c])  # 言語モデルスコア
+                    )
+
+                    # ビーム候補に追加
+                    candidates.append((prefix + [c], new_score))
+
+            # ビームの幅で絞り込み
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            beams = candidates[:beam_width]
+
+        # 最高スコアのビームを選択
+        best_beam = max(beams, key=lambda x: x[1])[0]
+        decoded_sequences.append(best_beam)
+
+    return decoded_sequences
 
 
 # # ダミーデータの生成

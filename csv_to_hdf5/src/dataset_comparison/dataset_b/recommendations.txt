@@ -1,0 +1,5 @@
+Recommendations for fixing dataset issues
+======================================
+
+No major issues detected in the dataset files.
+Check your CNN implementation for numerical stability issues instead.

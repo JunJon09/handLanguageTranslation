@@ -65,14 +65,19 @@ class TransformerModel(nn.Module):
         N, C, T, J = feature.shape
         feature = feature.permute([0, 2, 1, 3])
         feature = feature.reshape(N, T, -1)
-
+        print(f"src_featureの形状: {feature.shape}")
+        print("src_feature統計:")
+        print(f"Min: {feature.min()}")
+        print(f"Max: {feature.max()}")
+        print(f"Mean: {feature.mean()}")
+        print(f"Std: {feature.std()}")
         feature = self.linear(feature)
         if torch.isnan(feature).any():
             raise ValueError()
         feature = self.activation(feature)
         if torch.isnan(feature).any():
             raise ValueError()
-
+        print(feature.shape)
         feature = self.tr_encoder(
             feature=feature,
             causal_mask=feature_causal_mask,

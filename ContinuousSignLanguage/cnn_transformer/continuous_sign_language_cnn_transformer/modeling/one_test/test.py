@@ -4,6 +4,19 @@ import cnn_transformer.continuous_sign_language_cnn_transformer.modeling.one_tes
 import cnn_transformer.continuous_sign_language_cnn_transformer.modeling.config as model_config
 import torch
 import cnn_transformer.continuous_sign_language_cnn_transformer.modeling.one_test.mediapipe_relation as mediapipe_relation
+import tkinter as tk
+import time
+import threading
+import locale
+
+def close_windows():
+    # 10秒後にウィンドウを閉じる
+    time.sleep(60)
+    root1.destroy()
+    root2.destroy()
+
+root1 = ""
+root2 = ""
 
 if __name__ == "__main__":
     file_path = "../data/one_test/test.mp4"
@@ -29,6 +42,30 @@ if __name__ == "__main__":
     result = ' '.join(words)
     print("認識結果: {}".format(result))
     replay = chatgpt.word_translate(result)
-    print("日本語の翻訳結果: {}".format(replay))
     
+    print("日本語の翻訳結果: {}".format(replay))
+
+    # システムのデフォルトエンコーディングを取得
+    default_encoding = locale.getpreferredencoding()
+
+    root1 = tk.Tk()
+    root1.title("認識結果")
+    root1.geometry("800x200")
+
+    # フォントを日本語対応のフォントに変更
+    label1 = tk.Label(root1, text=result, font=("Noto Sans CJK JP", 50))
+    label1.pack(padx=20, pady=20)
+
+    # 2つ目のウィンドウ
+    root2 = tk.Toplevel(root1)
+    root2.title("日本語翻訳結果")
+    root2.geometry("1200x200")
+    label2 = tk.Label(root2, text=replay, font=("Noto Sans CJK JP", 50))
+    label2.pack(padx=20, pady=20)
+    # タイマースレッドを開始
+    timer_thread = threading.Thread(target=close_windows)
+    timer_thread.daemon = True
+    timer_thread.start()
+
+    root1.mainloop()
     

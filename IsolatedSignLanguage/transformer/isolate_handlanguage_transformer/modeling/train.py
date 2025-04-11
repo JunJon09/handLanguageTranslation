@@ -11,7 +11,6 @@ import numpy as np
 def main():
     train_hdf5files, val_hdf5files, test_hdf5files, VOCAB = dataset.read_dataset()
     train_dataloader, val_dataloader, test_dataloader, in_channels = functions.set_dataloader(train_hdf5files, val_hdf5files, test_hdf5files)
-
     out_channels = VOCAB
 
     model_default = model.TransformerModel(

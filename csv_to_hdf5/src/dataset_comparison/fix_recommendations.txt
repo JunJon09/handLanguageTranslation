@@ -1,0 +1,5 @@
+CNN NaN Issue Fix Recommendations
+===============================
+
+Based on the dataset comparison, here are recommended fixes for your CNN:
+

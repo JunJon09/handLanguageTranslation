@@ -1,9 +1,9 @@
 import numpy as np
 
 #dataset
-read_dataset_dir = "../hdf5/minimum_continuous_hand_language/"
-test_number = "005"
-val_number = "004"
+read_dataset_dir = "../hdf5/test_data/"
+test_number = "003"
+val_number = "002"
 
 # features 
 

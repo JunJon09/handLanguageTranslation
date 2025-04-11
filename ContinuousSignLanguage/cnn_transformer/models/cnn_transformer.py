@@ -137,11 +137,19 @@ class CNNTransformerModel(nn.Module):
         #CNNの処理 [N, L, T] -> [N, T', L']
         src_feature = torch.cat((src_feature, spatial_feature), dim=1)
         src_feature = self.cnn_extractor(src_feature)
-
+        print(src_feature.shape)
         enc_feature = self.tr_encoder(
             feature=src_feature,
             causal_mask=src_causal_mask,
             src_key_padding_mask=src_padding_mask)
+
+        if torch.isnan(enc_feature).any():
+            print("Transformerの出力にNaN値が検出されました")
+            # 問題のある入力値の確認
+            problem_indices = torch.where(torch.isnan(enc_feature))
+            print(enc_feature)
+            print(f"問題がある入力の要素: {enc_feature[problem_indices[0][0], problem_indices[1][0], problem_indices[2][0]]}")
+            exit(0)
 
         preds = self.tr_decoder(tgt_feature=tgt_feature,
                                 enc_feature=enc_feature,

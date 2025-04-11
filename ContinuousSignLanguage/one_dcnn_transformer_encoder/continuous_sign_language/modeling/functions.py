@@ -78,7 +78,6 @@ def train_loop(dataloader, model, optimizer, device, return_pred_times=False):
         feature_pad_mask = batch_sample["feature_pad_mask"]
         tokens = batch_sample["token"]
         tokens_pad_mask = batch_sample["token_pad_mask"]
-
         #check_tokens_format(tokens, tokens_pad_mask, start_id, end_id)
 
         feature = feature.to(device)
@@ -90,7 +89,7 @@ def train_loop(dataloader, model, optimizer, device, return_pred_times=False):
 
         # Predict.
 
-        input_lengths = [len(feature[i][0]) / 2 -1 if len(feature[i][0])%2==0 else len(feature[i][0])//2 for i in range(len(feature))]
+        input_lengths = [len(feature[i][0]) / 2 if len(feature[i][0])%2==0 else len(feature[i][0])//2 -1 for i in range(len(feature))]
         input_lengths = torch.tensor(input_lengths, dtype=torch.long)
         target_lengths = [len(tokens[i]) for i in range(len(tokens))]
         target_lengths = torch.tensor(target_lengths, dtype=torch.long)
@@ -98,18 +97,20 @@ def train_loop(dataloader, model, optimizer, device, return_pred_times=False):
         loss, log_probs = model.forward(
             src_feature=feature,
             tgt_feature=tokens,
-            src_causal_mask=None,      # オプション、今回は使用しない
-            src_padding_mask=None,     # オプション、今回は使用しない
+            src_causal_mask=None,
+            src_padding_mask=feature_pad_mask,
             input_lengths=input_lengths, #後修正
             target_lengths=target_lengths, #修正
-            is_training=True
+            mode="train",
         )
+        print("loss", loss)
         pred_end = time.perf_counter()
         pred_times.append([frames, pred_end - pred_start])
 
         # Back propagation.
         optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # 勾配クリッピングを追加
         optimizer.step()
 
         train_loss += loss.item()
@@ -147,8 +148,6 @@ def val_loop(dataloader, model, device, return_pred_times=False):
             feature_pad_mask = batch_sample["feature_pad_mask"]
             tokens = batch_sample["token"]
             tokens_pad_mask = batch_sample["token_pad_mask"]
-     
-     
             feature = feature.to(device)
             feature_pad_mask = feature_pad_mask.to(device)
             tokens = tokens.to(device)
@@ -157,29 +156,34 @@ def val_loop(dataloader, model, device, return_pred_times=False):
             frames = feature.shape[-2]
      
             # Predict.
-            input_lengths = [len(feature[i][0]) / 2 -1 if len(feature[i][0])%2==0 else len(feature[i][0])//2 for i in range(len(feature))]
-            input_lengths = torch.tensor(input_lengths, dtype=torch.long)
+            input_lengths = torch.tensor(
+                [feature[i].shape[-1] - 20 for i in range(len(feature))], 
+                dtype=torch.long
+            )
             target_lengths = [len(tokens[i]) for i in range(len(tokens))]
             target_lengths = torch.tensor(target_lengths, dtype=torch.long)
             pred_start = time.perf_counter()
-            loss, log_probs = model.forward(
+            val_loss, log_probs = model.forward(
                 src_feature=feature,
                 tgt_feature=tokens,
-                src_causal_mask=None,      # オプション、今回は使用しない
-                src_padding_mask=None,     # オプション、今回は使用しない
+                src_causal_mask=None,
+                src_padding_mask=feature_pad_mask,
                 input_lengths=input_lengths, #後修正
                 target_lengths=target_lengths, #修正
-                is_training=True
+                mode="eval",
             )
             pred_end = time.perf_counter()
             pred_times.append([frames, pred_end - pred_start])
-     
+            print("val_loss", val_loss)
             # Compute loss.
             # Preds do not include <start>, so skip that of tokens.
      
-            val_loss += loss.item()
+            tokens = tokens.tolist()
+            reference_text = [' '.join(map(str, seq)) for seq in tokens]
+            hypothesis_text = [' '.join(map(str, seq)) for seq in log_probs]
+            wer_score = wer(reference_text, hypothesis_text)
+            print(f"Batch {batch_idx}: WER: {wer_score:.10f}")
     print(f"Done. Time:{time.perf_counter()-start}")
-
     # Average loss.
     val_loss /= num_batches
     print("Validation performance: \n",
@@ -226,7 +230,7 @@ def test_loop(dataloader,
                 src_padding_mask=None,     # オプション、今回は使用しない
                 input_lengths=100, #後修正
                 target_lengths=20, #修正
-                is_training=False,
+                mode="test",
                 blank_id=blank_id
             )
             pred_end = time.perf_counter()
@@ -240,17 +244,34 @@ def test_loop(dataloader,
             hypothesis_text_list.append(hypothesis_text[0])
            
             
+    print(reference_text_list, hypothesis_text_list)
 
     print(f"Done. Time:{time.perf_counter()-start}")
 
     # Average WER.
-    print(reference_text_list, hypothesis_text_list)
+    # Create a dictionary to store WER per label
+    label_wer = {}
+    for ref, hyp in zip(reference_text_list, hypothesis_text_list):
+        ref_label = ref  # Get the first token as label
+
+        if ref_label not in label_wer:
+            label_wer[ref_label] = {"refs": [], "hyps": []}
+        label_wer[ref_label]["refs"].append(ref)
+        label_wer[ref_label]["hyps"].append(hyp)
+    # Calculate and print WER for each label
+    print("\nWER per label:")
+    for label in label_wer:
+        label_refs = label_wer[label]["refs"]
+        label_hyps = label_wer[label]["hyps"]
+        label_wer_score = wer(label_refs, label_hyps)
+        print(f"Label {label}: {label_wer_score:.10f} ({len(label_refs)} samples)")
     awer = wer(reference_text_list, hypothesis_text_list)
     print("Test performance: \n",
-          f"Avg WER:{awer:>0.1f}%\n")
+          f"Avg WER:{awer:>0.10f}\n")
     pred_times = np.array(pred_times)
     error_rate_cer = cer(reference_text_list, hypothesis_text_list)
     error_rate_mer = mer(reference_text_list, hypothesis_text_list)
+    print(f"Overall WER: {awer}")
     print(f"Overall CER: {error_rate_cer}")
     print(f"Overall MER: {error_rate_mer}")
     retval = (awer, pred_times) if return_pred_times else awer

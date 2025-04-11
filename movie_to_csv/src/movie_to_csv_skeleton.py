@@ -61,15 +61,27 @@ def write_index_csv(path, person_number, file_name, sign):
     with open(config.index_file_path, mode='a', newline='', encoding='utf-8') as f:
         fieldnames = ['path', 'person_number', 'file_name', 'sign']
         write = csv.DictWriter(f, fieldnames=fieldnames)
-        
+       
         if not file_exists:
             write.writeheader()
-        value = [minimum_relation.minimum_continuous_hand_language_relation[key] for key in sign]
-        text_sign = ",".join(value)
-        write.writerow({"path": path, "person_number": person_number, "file_name": file_name, "sign": text_sign})
 
-        
-    
+        #I:1, Like:2, Dislike:3, banna:4, apple:5
+
+        if sign == ['I', 'apple', 'dislike']:
+            sign = '1,5,3'
+        elif sign == ['I', 'apple', 'like']:
+            sign = '1,5,2'
+        elif sign == ['I', 'banana', 'dislike']:
+            sign = '1,4,3'
+        elif sign == ['I', 'banana', 'like']:   
+            sign = '1,4,2'
+        # # if person_number == "005":
+        # #     sign = '12,2'
+        # else:
+        #     sign = str(int(sign[0]))
+        # value = [minimum_relation.minimum_continuous_hand_language_relation[key] for key in sign]
+        # text_sign = ",".join(value)
+        write.writerow({"path": path, "person_number": person_number, "file_name": file_name, "sign": sign})
 
 def restore_nhk(file, i, j):
     file_split = file.split("/")
@@ -113,18 +125,43 @@ def restore_minimum_continuous_hand_language(file, i, j):
 
     return output_csv_path, person_number, csv_path, file_name, folder_name
 
+#restore_one_word
+def restore_one_word(file, i, j):
+    file_split = file.split("/")
+    folder_name = file_split[4] #ex:001
+    file_name = str((i+1) * 1000 + j)
+    csv_path = "/csv/one_word/" + folder_name + "/" + file_name + ".csv"
+    output_csv_path = "../.." + csv_path
+    if i==6:
+        person_number = "005"
+    else:
+        person_number = file_split[5].split("_")[1] #001
+    print( output_csv_path, person_number, csv_path, file_name, folder_name)
+    return output_csv_path, person_number, csv_path, file_name, folder_name
+
+def restore_test_data(file, i, j):
+    file_split = file.split("/")
+    folder_name = file_split[4] #ex:001
+    file_name = str((i+1) * 1000 + j)
+    csv_path = "/csv/test_data/" + folder_name + "/" + file_name + ".csv"
+    output_csv_path = "../.." + csv_path
+    person_number = str(i+1).zfill(3)
+    print( output_csv_path, person_number, csv_path, file_name, folder_name)
+    return output_csv_path, person_number, csv_path, file_name, folder_name
+
+
 if __name__ == "__main__":
     movie_files_list = get_movie_files()
+    print(len(movie_files_list), movie_files_list)
     MediaPipeClass = mediapipe_relation.MediaPipeClass()
     index_records = []
-    print(len(movie_files_list), len(movie_files_list[0]))
-
     for i, word_directory in enumerate(movie_files_list):
         for j, file in enumerate(word_directory):
             landmarks_list = MediaPipeClass.get_skeleton_by_mediapipe(file)
-            if len(landmarks_list) <= 5 :
+            if len(landmarks_list) <= 10 :
                 continue
-            print(i, j, file)
+            print(file)
+            
             #NHK
             #output_csv_path, person_number, csv_path, file_name, folder_name = restore_nhk(file, i, j)
             
@@ -132,7 +169,13 @@ if __name__ == "__main__":
             #output_csv_path, person_number, csv_path, file_name, folder_name = restore_lsa64(file)
 
             #minimum_Continuous_hand_language
-            output_csv_path, person_number, csv_path, file_name, folder_name = restore_minimum_continuous_hand_language(file, i, j)
+            # output_csv_path, person_number, csv_path, file_name, folder_name = restore_minimum_continuous_hand_language(file, i, j)
+
+            #one_word
+            #output_csv_path, person_number, csv_path, file_name, folder_name = restore_one_word(file, i, j)
+
+            #test_data
+            output_csv_path, person_number, csv_path, file_name, folder_name = restore_test_data(file, i, j)
             
             write_csv(landmarks_list, output_csv_path, person_number)
             write_index_csv(path=csv_path, person_number=person_number, file_name=file_name, sign=folder_name.split("_"))

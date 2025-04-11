@@ -180,18 +180,24 @@ class PartsBasedNormalization():
         if self.lhand_num > 0:
             lhand = feature[:, :, self.lhand_head: self.lhand_head+self.lhand_num]
             lhand = self._normalize(lhand, self.lhand_origin,
-                                    self.lhand_unit1, self.lhand_unit2)
+                                     self.lhand_unit1, self.lhand_unit2)
             feature[:, :, self.lhand_head: self.lhand_head+self.lhand_num] = lhand
+            
         if self.pose_num > 0:
             pose = feature[:, :, self.pose_head: self.pose_head+self.pose_num]
+            if pose.max() > 1.56:
+                print(f"aaa: {pose.max()}, 最小値: {pose.min()}")
             pose = self._normalize(pose, self.pose_origin,
                                    self.pose_unit1, self.pose_unit2)
             feature[:, :, self.pose_head: self.pose_head+self.pose_num] = pose
+           
         if self.rhand_num > 0:
             rhand = feature[:, :, self.rhand_head: self.rhand_head+self.rhand_num]
             rhand = self._normalize(rhand, self.rhand_origin,
                                     self.rhand_unit1, self.rhand_unit2)
             feature[:, :, self.rhand_head: self.rhand_head+self.rhand_num] = rhand
+            if rhand.max() > 100:   
+                print(f"右手特徴の最大値: {rhand.max()}, 最小値: {rhand.min()}")
         data["feature"] = feature
         return data
 

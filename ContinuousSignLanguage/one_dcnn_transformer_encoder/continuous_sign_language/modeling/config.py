@@ -1,10 +1,14 @@
-inter_channels = 512
 activation="relu"
 
 #detail 1DCNN
+cnn_out_channels = 64
 kernel_size = 5
 stride = 1
-padding = 1
+padding = 12
+dropout_rate = 0.2
+bias = False
+resNet = 0 # 0: なし 1: restNet18 2: restNet34 3: restNet50 restNet101 5: restNet152, 6: restNet152
+
 
 #detail transformer encoder
 tren_num_layers=6
@@ -22,9 +26,8 @@ batch_first = True
 #学習パラメータ
 label_smoothing = 0.1
 lr = 3e-4
-epochs = 100
+epochs = 50
 eval_every_n_epochs = 1
-max_seqlen = 150
 
 #モデルの保存
 model_save_path = "one_dcnn_transformer_encoder/models/cnn_transformer_model.pth"
