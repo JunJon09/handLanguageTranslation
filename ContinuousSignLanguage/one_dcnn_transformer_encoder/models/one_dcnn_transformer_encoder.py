@@ -2,6 +2,7 @@ import one_dcnn_transformer_encoder.models.one_dcnn as cnn
 import cnn_transformer.models.transformer_encoer as encoder
 from torch import nn
 import torch
+import one_dcnn_transformer_encoder.models.beam_search as beam_search
 
 
 class OnedCNNTransformerEncoderModel(nn.Module):
@@ -28,6 +29,9 @@ class OnedCNNTransformerEncoderModel(nn.Module):
         blank_idx=1,
     ):
         super().__init__()
+
+        # blank_idxをクラス変数として保存
+        self.blank_id = blank_idx
 
         # 1DCNNモデル
         # self.cnn_model = cnn.resnet18_1d(num_classes=num_classes, in_channels=in_channels, out_channels=cnn_out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dropout_rate=dropout_rate, bias=bias)
@@ -65,12 +69,65 @@ class OnedCNNTransformerEncoderModel(nn.Module):
         # クラス分類用の線形層
         self.classifier = nn.Linear(inter_channels, num_classes)
 
+        # 重みの初期化を改善
+        self._initialize_weights()
+
         # ログソフトマックス（CTC損失用）
         self.log_softmax = nn.LogSoftmax(dim=-1)
 
-        # CTC損失関数
+        # CTC損失関数 - 不均衡なクラス分布に対処するためのオプション
         print(f"blank_idx: {blank_idx}")
-        self.ctc_loss = nn.CTCLoss(blank=blank_idx, zero_infinity=False)
+        # 標準の損失
+        self.ctc_loss = nn.CTCLoss(
+            blank=blank_idx, zero_infinity=True, reduction="mean"
+        )
+
+        # トレーニング情報追跡
+        self.train_steps = 0
+        self.min_loss = float("inf")
+
+    def _initialize_weights(self):
+        """
+        重みの初期化を改良した関数
+        """
+        # Classifier層の初期化 - より均一な分布を目指す
+        # 各クラスが等しいチャンスを持つように初期化
+        nn.init.xavier_uniform_(
+            self.classifier.weight, gain=0.01
+        )  # gainを小さくして初期値を抑制
+        if self.classifier.bias is not None:
+            # バイアスは最初はゼロに近い値に設定
+            nn.init.constant_(self.classifier.bias, 0)
+
+            # ブランク以外のクラスにわずかに正のバイアスを与える
+            with torch.no_grad():
+                for i in range(self.classifier.bias.size(0)):
+                    if i != self.blank_id:  # ブランク以外のクラス
+                        self.classifier.bias[i] += 0.1  # 小さな正のバイアス
+
+        print("モデルの重み初期化を実行しました（改良版）")
+
+        # 改良された重みの統計情報を表示
+        with torch.no_grad():
+            classifier_weights = self.classifier.weight.data
+            print(
+                f"分類層の重み統計: 平均={classifier_weights.mean().item():.4f}, 標準偏差={classifier_weights.std().item():.4f}"
+            )
+
+            # クラス別のバイアス値を確認（もしバイアスがある場合）
+            if self.classifier.bias is not None:
+                blank_bias = self.classifier.bias[self.blank_id].item()
+                other_bias_mean = torch.mean(
+                    torch.cat(
+                        [
+                            self.classifier.bias[: self.blank_id],
+                            self.classifier.bias[self.blank_id + 1 :],
+                        ]
+                    )
+                ).item()
+
+                print(f"ブランクラベル({self.blank_id})のバイアス: {blank_bias:.4f}")
+                print(f"他のクラスの平均バイアス: {other_bias_mean:.4f}")
 
     def forward(
         self,
@@ -81,7 +138,7 @@ class OnedCNNTransformerEncoderModel(nn.Module):
         input_lengths,
         target_lengths,
         mode,
-        blank_id=100,
+        blank_id=None,
     ):
         """
         src_feature:[batch, C, T, J]
@@ -89,6 +146,18 @@ class OnedCNNTransformerEncoderModel(nn.Module):
         input_lengths:[batch]1D CNNに通した後のデータ
         target_lengths:[batch]tgt_featureで最大値に伸ばしたので本当の長さ
         """
+        # blank_idが指定されていない場合はクラス変数を使用
+        if blank_id is None:
+            blank_id = self.blank_id
+
+        # シーケンス長とバッチサイズを記録（デバッグ用）
+        print(
+            f"CNNに入力される長さの範囲: {input_lengths.min().item()} - {input_lengths.max().item()}"
+        )
+        print(
+            f"ターゲット長の範囲: {target_lengths.min().item()} - {target_lengths.max().item()}"
+        )
+
         N, C, T, J = src_feature.shape
         src_feature = src_feature.permute(0, 3, 1, 2).contiguous().view(N, C * J, T)
         # 入力データにNaN値があるかチェック
@@ -108,10 +177,9 @@ class OnedCNNTransformerEncoderModel(nn.Module):
         src_feature = (src_feature - src_mean) / src_std
 
         # 大きすぎる値や小さすぎる値をクリップ
-        src_feature = torch.clamp(src_feature, min=-10.0, max=10.0)
-        # src_featureを転置して(batch, T, C*J)の形状にする
-
-        cnn_out = self.cnn_model(src_feature)  # [batch, 512, T']
+        src_feature = torch.clamp(src_feature, min=-5.0, max=5.0)
+        print(src_feature.shape, "src_feature.shape")
+        cnn_out = self.cnn_model(src_feature)  # return [batch, 512, T']
         cnn_out = cnn_out.permute(0, 2, 1)  # (batch, T', 512)
         if torch.isnan(cnn_out).any():
             print("層1の出力にNaN値が検出されました")
@@ -120,8 +188,6 @@ class OnedCNNTransformerEncoderModel(nn.Module):
             print(
                 f"問題がある入力の要素: {cnn_out[problem_indices[0][0], problem_indices[1][0], problem_indices[2][0]]}"
             )
-
-       
 
         # パディングマスクのサイズをCNN出力のシーケンス長に合わせる
         if src_padding_mask is not None:
@@ -161,12 +227,40 @@ class OnedCNNTransformerEncoderModel(nn.Module):
 
         logits = self.classifier(tr_out)  # (batch, T', num_classes)
 
+        # ログソフトマックスを適用する前に、出力分布のチェック
+        with torch.no_grad():
+            # 訓練前の出力分布を確認
+            max_logit = torch.max(logits).item()
+            min_logit = torch.min(logits).item()
+            mean_logit = torch.mean(logits).item()
+            std_logit = torch.std(logits).item()
+            print(
+                f"ロジット統計: 最大={max_logit:.4f}, 最小={min_logit:.4f}, 平均={mean_logit:.4f}, 標準偏差={std_logit:.4f}"
+            )
+
+            # クラスごとの平均値を確認
+            class_means = torch.mean(logits, dim=(0, 1))
+            top5_means, top5_indices = torch.topk(class_means, 5)
+            print(f"平均値が高い上位5クラス: {top5_indices.tolist()}")
+            print(f"上位5クラスの平均値: {top5_means.tolist()}")
+
+            # 標準偏差が小さすぎる場合は警告
+            if std_logit < 0.1:
+                print(
+                    "警告: ロジットの標準偏差が非常に小さいです。モデルが学習できていない可能性があります。"
+                )
+
+        # 出力が偏りすぎないように温度パラメータでスケーリング（訓練時以外）
+        if mode != "train":
+            temperature = 1.5  # >1.0で分布がより均一に、<1.0で最大値がより強調される
+            logits = logits / temperature
+            print(f"温度パラメータ {temperature} でロジットをスケーリングしました")
+
         # ログソフトマックスを適用
         log_probs = self.log_softmax(logits)  # (batch, T', num_classes)
 
         # CTC損失の入力形式に変換: (T', batch, C)
         log_probs = log_probs.permute(1, 0, 2)  # (T', batch, num_classes)
-
 
         if mode == "train":
             # CTC損失を計算
@@ -184,125 +278,15 @@ class OnedCNNTransformerEncoderModel(nn.Module):
                 input_lengths,  # (batch,)
                 target_lengths,  # (batch,)
             )
-            decoded_sequences = beam_search_decode(
-                log_probs, beam_width=10, blank_id=blank_id
+            decoded_sequences = beam_search.beam_search_decode(
+                log_probs, beam_width=10, blank_id=self.blank_id
             )
             return loss, decoded_sequences
         elif mode == "test":
-            decoded_sequences = beam_search_decode(
-                log_probs, beam_width=10, blank_id=blank_id
+            decoded_sequences = beam_search.beam_search_decode(
+                log_probs, beam_width=10, blank_id=self.blank_id
             )
             return decoded_sequences
-
-
-def beam_search_decode(log_probs, beam_width=10, blank_id=0):
-    """
-    ビームサーチを使用したCTCデコーディング
-
-    Args:
-        log_probs (torch.Tensor): ログ確率テンソル (T', batch, num_classes)
-        beam_width (int): ビームの幅
-        blank_id (int): ブランクラベルのID
-
-    Returns:
-        List[List[int]]: デコードされたシーケンス
-    """
-    batch_size = log_probs.size(1)
-    decoded_sequences = []
-
-    for b in range(batch_size):
-        # 1バッチごとにビームサーチを実行
-        seq_probs = log_probs[:, b, :]
-
-        # ビーム初期化
-        beams = [([], 0.0)]
-
-        for t in range(seq_probs.size(0)):
-            new_beams = []
-
-            for prefix, score in beams:
-                # 現在のタイムステップの確率を取得
-                probs = seq_probs[t]
-
-                # 各クラスについて新しいビームを生成
-                for c in range(len(probs)):
-                    # 新しいスコアを計算
-                    new_score = score + probs[c].item()
-
-                    # 同じラベルの連続を避ける
-                    if c == blank_id:
-                        new_beam = (prefix, new_score)
-                    elif not prefix or c != prefix[-1]:
-                        new_beam = (prefix + [c], new_score)
-                    else:
-                        continue
-
-                    new_beams.append(new_beam)
-
-            # ビームの幅を制限
-            new_beams.sort(key=lambda x: x[1], reverse=True)
-            beams = new_beams[:beam_width]
-
-        # 最高スコアのビームを選択
-        best_beam = max(beams, key=lambda x: x[1])[0]
-        decoded_sequences.append(best_beam)
-    return decoded_sequences
-
-
-def soft_beam_search_decode(log_probs, beam_width=10, blank_id=0, lm_weight=0.5):
-    """
-    ソフトマックスと言語モデルを考慮したビームサーチ
-
-    Args:
-        log_probs (torch.Tensor): ログ確率テンソル
-        beam_width (int): ビームの幅
-        blank_id (int): ブランクラベルのID
-        lm_weight (float): 言語モデルの重み
-
-    Returns:
-        List[List[int]]: デコードされたシーケンス
-    """
-
-    # 言語モデルの仮想的な実装（実際の言語モデルに置き換える）
-    def language_model_score(sequence):
-        # 単純な長さペナルティ（実際のタスクに合わせて調整）
-        return -len(sequence)
-
-    batch_size = log_probs.size(1)
-    decoded_sequences = []
-
-    for b in range(batch_size):
-        # バッチごとの処理
-        seq_probs = log_probs[:, b, :]
-
-        # マルチビームサーチ
-        beams = [([], 0.0)]
-
-        for t in range(seq_probs.size(0)):
-            candidates = []
-
-            for prefix, score in beams:
-                for c in range(seq_probs.size(1)):
-                    # 新しいスコア計算
-                    new_score = (
-                        score
-                        + seq_probs[t, c].item()  # 音響モデルスコア
-                        + lm_weight
-                        * language_model_score(prefix + [c])  # 言語モデルスコア
-                    )
-
-                    # ビーム候補に追加
-                    candidates.append((prefix + [c], new_score))
-
-            # ビームの幅で絞り込み
-            candidates.sort(key=lambda x: x[1], reverse=True)
-            beams = candidates[:beam_width]
-
-        # 最高スコアのビームを選択
-        best_beam = max(beams, key=lambda x: x[1])[0]
-        decoded_sequences.append(best_beam)
-
-    return decoded_sequences
 
 
 # # ダミーデータの生成

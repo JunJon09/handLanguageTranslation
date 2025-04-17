@@ -27,13 +27,20 @@ def read_dataset(input_dir = config.read_dataset_dir):
 
     return train_hdf5files, val_hdf5files, test_hdf5files, key2token
 
+
+
 class HDF5Dataset(Dataset):
+    """
+    Dataset Class
+    HDF5Datasetクラスは、HDF5ファイルからデータを読み込み、PyTorchのDatasetインターフェースを実装します。
+    """
     def __init__(self,
                  hdf5files,
                  load_into_ram=False,
                  convert_to_channel_first=False,
                  pre_transforms=None,
                  transforms=None):
+        #入力ファイルに対して、人ごとにわけ尚且つ、各データを格納
         self.convert_to_channel_first = convert_to_channel_first
         self.pre_transforms = pre_transforms
         self.load_into_ram = load_into_ram
@@ -69,6 +76,7 @@ class HDF5Dataset(Dataset):
 
         # Check and assign transforms.
         self.transforms = self._check_transforms(transforms)
+
 
     def _check_transforms(self, transforms):
         # Check transforms.
@@ -115,7 +123,7 @@ class HDF5Dataset(Dataset):
     def __len__(self):
         return len(self.data_info)
 
-
+#異なるシーケンスのデータを指定された形状にパディングして結合する関数
 def merge(sequences, merged_shape, padding_val=0):
     merged = torch.full(tuple(merged_shape),
                         padding_val,
@@ -144,7 +152,7 @@ def merge(sequences, merged_shape, padding_val=0):
                    :seq.shape[3]] = seq
     return merged
 
-
+#バッチ内の異なるシーケンスに対して、最大フレームに合わせてぱでイングを行い、パディングマスクを生成する関数
 def merge_padded_batch(batch,
                        feature_shape,
                        token_shape,
