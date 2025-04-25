@@ -65,15 +65,21 @@ class OnedCNNTransformerEncoderModel(nn.Module):
         self.tr_encoder = nn.TransformerEncoder(
             encoder_layer=enlayer, num_layers=tren_num_layers
         )
-
+        
         # クラス分類用の線形層
         self.classifier = nn.Linear(inter_channels, num_classes)
+        
+        # クラス毎の相互抑制を減らすための層
+        self.class_attention = nn.MultiheadAttention(embed_dim=num_classes, num_heads=1, batch_first=True)
 
         # 重みの初期化を改善
         self._initialize_weights()
 
         # ログソフトマックス（CTC損失用）
         self.log_softmax = nn.LogSoftmax(dim=-1)
+        
+        # 温度パラメータ（訓練可能）
+        self.temperature = nn.Parameter(torch.tensor(1.0))
 
         # CTC損失関数 - 不均衡なクラス分布に対処するためのオプション
         print(f"blank_idx: {blank_idx}")
@@ -139,12 +145,14 @@ class OnedCNNTransformerEncoderModel(nn.Module):
         target_lengths,
         mode,
         blank_id=None,
+        current_epoch=None,
     ):
         """
         src_feature:[batch, C, T, J]
         tgt_feature:[batch, max_len]答えをバッチサイズの最大値に合わせてpaddingしている
         input_lengths:[batch]1D CNNに通した後のデータ
         target_lengths:[batch]tgt_featureで最大値に伸ばしたので本当の長さ
+        current_epoch: 現在のエポック番号（グラフ作成時に使用）
         """
         # blank_idが指定されていない場合はクラス変数を使用
         if blank_id is None:
@@ -163,8 +171,6 @@ class OnedCNNTransformerEncoderModel(nn.Module):
         # 入力データにNaN値があるかチェック
         if torch.isnan(src_feature).any():
             print("警告: 入力src_featureにNaN値が検出されました")
-
-        # 入力データの統計情報を表示
 
         # 無限大の値があるかチェック
         if torch.isinf(src_feature).any():
@@ -195,7 +201,6 @@ class OnedCNNTransformerEncoderModel(nn.Module):
             original_seq_len = src_padding_mask.shape[1]
             # CNNを通過した後のシーケンス長
             cnn_seq_len = cnn_out.shape[1]
-
             if original_seq_len != cnn_seq_len:
                 print(
                     f"パディングマスクのサイズを調整: {original_seq_len} -> {cnn_seq_len}"
@@ -203,16 +208,12 @@ class OnedCNNTransformerEncoderModel(nn.Module):
                 # シーケンスが短くなった場合は切り詰め
                 if original_seq_len > cnn_seq_len:
                     src_padding_mask = src_padding_mask[:, :cnn_seq_len]
-                # シーケンスが長くなった場合はパディング（通常はありえないが念のため）
-                else:
-                    padding = torch.zeros(
-                        src_padding_mask.shape[0],
-                        cnn_seq_len - original_seq_len,
-                        device=src_padding_mask.device,
-                        dtype=src_padding_mask.dtype,
-                    )
-                    src_padding_mask = torch.cat([src_padding_mask, padding], dim=1)
 
+                else: # シーケンスが長くなった場合はパディング
+                    padding_length = cnn_seq_len - original_seq_len
+                    padding = torch.zeros(src_padding_mask.size(0), padding_length, dtype=src_padding_mask.dtype, device=src_padding_mask.device)
+                    src_padding_mask = torch.cat((src_padding_mask, padding), dim=1)
+ 
         tr_out = self.tr_encoder(
             src=cnn_out, mask=src_causal_mask, src_key_padding_mask=src_padding_mask
         )  # (batch, T', inter_channels)
@@ -225,21 +226,31 @@ class OnedCNNTransformerEncoderModel(nn.Module):
                 f"問題がある入力の要素: {tr_out[problem_indices[0][0], problem_indices[1][0], problem_indices[2][0]]}"
             )
 
+        # クラス分類
         logits = self.classifier(tr_out)  # (batch, T', num_classes)
+        
+        # マルチヘッドアテンション機構を使って、クラス間の関係性を学習
+        # 各時間フレームでの予測を改善し、複数クラスの検出を促進
+        # logits: (batch, T', num_classes)
+        attended_logits, _ = self.class_attention(logits, logits, logits)
+        
+        # 元のロジットとアテンション後のロジットを組み合わせる
+        # これにより、クラス間の排他的な競合を減らし、複数の手話単語の検出を可能に
+        final_logits = logits + 0.5 * attended_logits  # 重み付け係数は調整可能
 
         # ログソフトマックスを適用する前に、出力分布のチェック
         with torch.no_grad():
             # 訓練前の出力分布を確認
-            max_logit = torch.max(logits).item()
-            min_logit = torch.min(logits).item()
-            mean_logit = torch.mean(logits).item()
-            std_logit = torch.std(logits).item()
+            max_logit = torch.max(final_logits).item()
+            min_logit = torch.min(final_logits).item()
+            mean_logit = torch.mean(final_logits).item()
+            std_logit = torch.std(final_logits).item()
             print(
                 f"ロジット統計: 最大={max_logit:.4f}, 最小={min_logit:.4f}, 平均={mean_logit:.4f}, 標準偏差={std_logit:.4f}"
             )
 
             # クラスごとの平均値を確認
-            class_means = torch.mean(logits, dim=(0, 1))
+            class_means = torch.mean(final_logits, dim=(0, 1))
             top5_means, top5_indices = torch.topk(class_means, 5)
             print(f"平均値が高い上位5クラス: {top5_indices.tolist()}")
             print(f"上位5クラスの平均値: {top5_means.tolist()}")
@@ -250,20 +261,31 @@ class OnedCNNTransformerEncoderModel(nn.Module):
                     "警告: ロジットの標準偏差が非常に小さいです。モデルが学習できていない可能性があります。"
                 )
 
-        # 出力が偏りすぎないように温度パラメータでスケーリング（訓練時以外）
-        if mode != "train":
-            temperature = 1.5  # >1.0で分布がより均一に、<1.0で最大値がより強調される
-            logits = logits / temperature
-            print(f"温度パラメータ {temperature} でロジットをスケーリングしました")
+        # 出力が偏りすぎないように動的な温度パラメータでスケーリング
+        # 訓練モードでは学習可能な温度パラメータを使用
+        if mode == "train":
+            # 現在のエポックに基づいて温度を調整（早期のエポックでは高温に）
+            if current_epoch is not None and current_epoch < 5:
+                # 早期のエポックでは分布をより均一にして、多様な学習を促進
+                temp = torch.clamp(self.temperature * 1.5, min=1.0, max=2.0)
+            else:
+                temp = self.temperature
+            scaled_logits = final_logits / temp
+        else:
+            # 評価・テストモードでは固定の温度で、複数クラスの検出を促進
+            temp = 1.5  # >1.0で分布がより均一に、<1.0で最大値がより強調される
+            scaled_logits = final_logits / temp
+            print(f"温度パラメータ {temp} でロジットをスケーリングしました")
 
         # ログソフトマックスを適用
-        log_probs = self.log_softmax(logits)  # (batch, T', num_classes)
+        log_probs = self.log_softmax(scaled_logits)  # (batch, T', num_classes)
 
         # CTC損失の入力形式に変換: (T', batch, C)
         log_probs = log_probs.permute(1, 0, 2)  # (T', batch, num_classes)
 
         if mode == "train":
             # CTC損失を計算
+            print(tgt_feature, "tgt_feature")
             loss = self.ctc_loss(
                 log_probs,  # (T', batch, C)
                 tgt_feature,  # (batch, max_target_length)
@@ -278,13 +300,21 @@ class OnedCNNTransformerEncoderModel(nn.Module):
                 input_lengths,  # (batch,)
                 target_lengths,  # (batch,)
             )
+            # エポック情報をbeam_searchに渡す
             decoded_sequences = beam_search.beam_search_decode(
-                log_probs, beam_width=10, blank_id=self.blank_id
+                log_probs,
+                beam_width=10,
+                blank_id=self.blank_id,
+                current_epoch=current_epoch,
             )
             return loss, decoded_sequences
         elif mode == "test":
+            # エポック情報をbeam_searchに渡す
             decoded_sequences = beam_search.beam_search_decode(
-                log_probs, beam_width=10, blank_id=self.blank_id
+                log_probs,
+                beam_width=10,
+                blank_id=self.blank_id,
+                current_epoch=current_epoch,
             )
             return decoded_sequences
 

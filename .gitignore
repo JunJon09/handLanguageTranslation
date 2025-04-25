@@ -14,4 +14,4 @@
 !/relation_asl_sign/src
 !/movie_to_csv/src
 !/csv_to_hdf5/src
-
+!/ContinuousSignLanguage/plots/*

@@ -190,7 +190,7 @@ def train_loop(
     return retval
 
 
-def val_loop(dataloader, model, device, return_pred_times=False):
+def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=None):
     num_batches = len(dataloader)
     val_loss = 0
 
@@ -232,6 +232,7 @@ def val_loop(dataloader, model, device, return_pred_times=False):
                 input_lengths=input_lengths,  # 後修正
                 target_lengths=target_lengths,  # 修正
                 mode="eval",
+                current_epoch=current_epoch,  # エポック情報の追加
             )
             pred_end = time.perf_counter()
             pred_times.append([frames, pred_end - pred_start])

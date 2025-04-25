@@ -2,7 +2,7 @@ import torch
 import time  # 時間スタンプ用にtimeモジュールを追加
 
 
-def beam_search_decode(log_probs, beam_width=10, blank_id=1):
+def beam_search_decode(log_probs, beam_width=10, blank_id=1, current_epoch=None):
     """
     ビームサーチを使用したCTCデコーディング
 
@@ -10,6 +10,7 @@ def beam_search_decode(log_probs, beam_width=10, blank_id=1):
         log_probs (torch.Tensor): ログ確率テンソル (T', batch, num_classes)
         beam_width (int): ビームの幅
         blank_id (int): ブランクラベルのID
+        current_epoch (int, optional): 現在のエポック番号（グラフのファイル名に使用）
 
     Returns:
         List[List[int]]: デコードされたシーケンス
@@ -75,9 +76,10 @@ def beam_search_decode(log_probs, beam_width=10, blank_id=1):
 
             # 確率の平均値も表示
             mean_probs = first_batch_probs.mean(axis=0)
-            top5_mean_probs, top5_mean_indices = np.sort(mean_probs)[-5:], np.argsort(
-                mean_probs
-            )[-5:]
+            top5_mean_probs, top5_mean_indices = (
+                np.sort(mean_probs)[-5:],
+                np.argsort(mean_probs)[-5:],
+            )
 
             # テキスト情報の追加
             plt.figtext(
@@ -93,7 +95,10 @@ def beam_search_decode(log_probs, beam_width=10, blank_id=1):
             import os
 
             os.makedirs("plots", exist_ok=True)
-            plt.savefig(f"plots/frame_probabilities_{int(time.time())}.png")
+            file_suffix = f"epoch_{current_epoch}_" if current_epoch is not None else ""
+            plt.savefig(
+                f"plots/{file_suffix}frame_probabilities_{int(time.time())}.png"
+            )
             plt.close()
 
             print(f"フレームごとの確率グラフを 'plots/' ディレクトリに保存しました")
@@ -133,7 +138,9 @@ def beam_search_decode(log_probs, beam_width=10, blank_id=1):
             )
 
             # ヒートマップも保存
-            plt.savefig(f"plots/probability_heatmap_{int(time.time())}.png")
+            plt.savefig(
+                f"plots/{file_suffix}probability_heatmap_{int(time.time())}.png"
+            )
             plt.close()
 
             print(f"確率ヒートマップも保存しました")

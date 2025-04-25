@@ -2,9 +2,9 @@ activation="relu"
 
 #detail 1DCNN
 cnn_out_channels = 512
-kernel_size = 30
+kernel_size =30
 stride = 1
-padding = 12
+padding = kernel_size//2
 dropout_rate = 0.2
 bias = False
 resNet = 0 # 0: なし, 1: restNet18, 2: restNet34 3: restNet50 restNet101 5: restNet152, 6: restNet152

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import copy
 
 # 基本ブロックの定義
 class BasicBlock1D(nn.Module):
@@ -694,6 +694,134 @@ def create_simple_cnn1layer_with_residual(
     return SimpleCNN1LayerWithResidual(
         in_channels, out_channels, kernel_size, stride, padding, dropout_rate, bias
     )
+
+class TemporalConv(nn.Module):
+    def __init__(self, input_size, hidden_size, conv_type=2, use_bn=False, num_classes=-1):
+        super(TemporalConv, self).__init__()
+        self.use_bn = use_bn
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_classes = num_classes
+        self.conv_type = conv_type
+
+        if self.conv_type == 0:
+            self.kernel_size = ['K3']
+        elif self.conv_type == 1:
+            self.kernel_size = ['K5', "P2"]
+        elif self.conv_type == 2:
+            self.kernel_size = ['K5', "P2", 'K5', "P2"]
+        elif self.conv_type == 3:
+            self.kernel_size = ['K5', 'K5', "P2"]
+        elif self.conv_type == 4:
+            self.kernel_size = ['K5', 'K5']
+        elif self.conv_type == 5:
+            self.kernel_size = ['K5', "P2", 'K5']
+        elif self.conv_type == 6:
+            self.kernel_size = ["P2", 'K5', 'K5']
+        elif self.conv_type == 7:
+            self.kernel_size = ["P2", 'K5', "P2", 'K5']
+        elif self.conv_type == 8:
+            self.kernel_size = ["P2", "P2", 'K5', 'K5']
+
+        modules = []
+        for layer_idx, ks in enumerate(self.kernel_size):
+            input_sz = self.input_size if layer_idx == 0 or self.conv_type == 6 and layer_idx == 1 or self.conv_type == 7 and layer_idx == 1 or self.conv_type == 8 and layer_idx == 2 else self.hidden_size
+            if ks[0] == 'P':
+                modules.append(nn.MaxPool1d(kernel_size=int(ks[1]), ceil_mode=False))
+            elif ks[0] == 'K':
+                modules.append(
+                    nn.Conv1d(input_sz, self.hidden_size, kernel_size=int(ks[1]), stride=1, padding=0)
+                    #MultiScale_TemporalConv(input_sz, self.hidden_size)
+                )
+                modules.append(nn.BatchNorm1d(self.hidden_size))
+                modules.append(nn.ReLU(inplace=True))
+        self.temporal_conv = nn.Sequential(*modules)
+
+        if self.num_classes != -1:
+            self.fc = nn.Linear(self.hidden_size, self.num_classes)
+
+    def update_lgt(self, lgt):
+        feat_len = copy.deepcopy(lgt)
+        for ks in self.kernel_size:
+            if ks[0] == 'P':
+                feat_len = torch.div(feat_len, 2)
+            else:
+                feat_len -= int(ks[1]) - 1
+                #pass
+        return feat_len
+
+    def forward(self, frame_feat, lgt):
+        visual_feat = self.temporal_conv(frame_feat)
+        lgt = self.update_lgt(lgt)
+        logits = None if self.num_classes == -1 \
+            else self.fc(visual_feat.transpose(1, 2)).transpose(1, 2)
+        return {
+            "visual_feat": visual_feat.permute(2, 0, 1),
+            "conv_logits": logits.permute(2, 0, 1),
+            "feat_len": lgt.cpu(),
+        }
+
+
+# テスト用コード
+if __name__ == "__main__":
+    # デバイスの設定
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    
+    # モデルパラメータ
+    input_size = 75  # 入力特徴量のサイズ
+    hidden_size = 128  # 隠れ層のサイズ
+    conv_type = 7  # 畳み込みタイプ
+    
+    # サンプルデータの作成
+    batch_size = 16
+    seq_length = 100  # シーケンス長
+    
+    # 入力テンソル作成 [batch_size, input_size, seq_length]
+    input_tensor = torch.randn(batch_size, input_size, seq_length).to(device)
+    
+    # 系列長の作成（バッチ内の各サンプルのシーケンス長）
+    lengths = torch.full((batch_size,), seq_length, dtype=torch.long).to(device)
+    
+    # モデルのインスタンス化と設定
+    model = TemporalConv(
+        input_size=input_size,
+        hidden_size=hidden_size,
+        conv_type=conv_type,
+        use_bn=True,
+        num_classes=64  # 分類するクラス数（-1の場合は特徴抽出のみ）
+    ).to(device)
+    
+    print(f"Model structure: {model}")
+    
+    # 入力データの形状確認
+    print(f"Input tensor shape: {input_tensor.shape}")
+    print(f"Initial lengths: {lengths}")
+    
+    # モデルを評価モードに設定
+    model.eval()
+    
+    # 推論実行
+    with torch.no_grad():
+        output = model(input_tensor, lengths)
+    
+    # 出力結果の表示
+    print("\nOutput:")
+    for key, value in output.items():
+        if isinstance(value, torch.Tensor):
+            print(f"{key} shape: {value.shape}")
+        else:
+            print(f"{key}: {value}")
+    
+    # 更新された系列長の確認
+    updated_lengths = output["feat_len"]
+    print(f"Updated lengths: {updated_lengths}")
+    print("conv_logits: ", output["conv_logits"].shape)
+    
+    # メモリ情報（GPUを使用している場合）
+    if torch.cuda.is_available():
+        print(f"\nGPU Memory allocated: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+        print(f"GPU Memory cached: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
 
 
 # # 使用例

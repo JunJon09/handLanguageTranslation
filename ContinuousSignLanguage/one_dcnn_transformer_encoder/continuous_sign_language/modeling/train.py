@@ -73,6 +73,9 @@ def model_train():
     min_loss = float("inf")
     cnn_transformer.to(device)
 
+    # plotsディレクトリを作成
+    os.makedirs("plots", exist_ok=True)
+
     print(f"初期学習率: {initial_lr:.6f}, 最大学習率: {model_config.lr:.6f}")
     print("Start training.")
     for epoch in range(epochs):
@@ -94,6 +97,7 @@ def model_train():
                 model=cnn_transformer,
                 device=device,
                 return_pred_times=True,
+                current_epoch=epoch + 1,
             )
             val_losses.append(val_loss)
             if min_loss > val_loss:  # lossが最小なのを保存
