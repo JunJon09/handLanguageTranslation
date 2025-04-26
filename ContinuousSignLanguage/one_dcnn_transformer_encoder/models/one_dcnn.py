@@ -3,9 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import copy
 
+
 # 基本ブロックの定義
 class BasicBlock1D(nn.Module):
     expansion = 1  # 出力チャンネル数の倍率
+
     def __init__(self, in_channels, out_channels, stride=1, downsample=None):
         super(BasicBlock1D, self).__init__()
         print(in_channels, out_channels, stride)
@@ -695,8 +697,11 @@ def create_simple_cnn1layer_with_residual(
         in_channels, out_channels, kernel_size, stride, padding, dropout_rate, bias
     )
 
+
 class TemporalConv(nn.Module):
-    def __init__(self, input_size, hidden_size, conv_type=2, use_bn=False, num_classes=-1):
+    def __init__(
+        self, input_size, hidden_size, conv_type=2, use_bn=False, num_classes=-1
+    ):
         super(TemporalConv, self).__init__()
         self.use_bn = use_bn
         self.input_size = input_size
@@ -705,33 +710,49 @@ class TemporalConv(nn.Module):
         self.conv_type = conv_type
 
         if self.conv_type == 0:
-            self.kernel_size = ['K3']
+            self.kernel_size = ["K3"]
         elif self.conv_type == 1:
-            self.kernel_size = ['K5', "P2"]
+            self.kernel_size = ["K5", "P2"]
         elif self.conv_type == 2:
-            self.kernel_size = ['K5', "P2", 'K5', "P2"]
+            self.kernel_size = ["K5", "P2", "K5", "P2"]
         elif self.conv_type == 3:
-            self.kernel_size = ['K5', 'K5', "P2"]
+            self.kernel_size = ["K5", "K5", "P2"]
         elif self.conv_type == 4:
-            self.kernel_size = ['K5', 'K5']
+            self.kernel_size = ["K5", "K5"]
         elif self.conv_type == 5:
-            self.kernel_size = ['K5', "P2", 'K5']
+            self.kernel_size = ["K5", "P2", "K5"]
         elif self.conv_type == 6:
-            self.kernel_size = ["P2", 'K5', 'K5']
+            self.kernel_size = ["P2", "K5", "K5"]
         elif self.conv_type == 7:
-            self.kernel_size = ["P2", 'K5', "P2", 'K5']
+            self.kernel_size = ["P2", "K5", "P2", "K5"]
         elif self.conv_type == 8:
-            self.kernel_size = ["P2", "P2", 'K5', 'K5']
+            self.kernel_size = ["P2", "P2", "K5", "K5"]
 
         modules = []
         for layer_idx, ks in enumerate(self.kernel_size):
-            input_sz = self.input_size if layer_idx == 0 or self.conv_type == 6 and layer_idx == 1 or self.conv_type == 7 and layer_idx == 1 or self.conv_type == 8 and layer_idx == 2 else self.hidden_size
-            if ks[0] == 'P':
+            input_sz = (
+                self.input_size
+                if layer_idx == 0
+                or self.conv_type == 6
+                and layer_idx == 1
+                or self.conv_type == 7
+                and layer_idx == 1
+                or self.conv_type == 8
+                and layer_idx == 2
+                else self.hidden_size
+            )
+            if ks[0] == "P":
                 modules.append(nn.MaxPool1d(kernel_size=int(ks[1]), ceil_mode=False))
-            elif ks[0] == 'K':
+            elif ks[0] == "K":
                 modules.append(
-                    nn.Conv1d(input_sz, self.hidden_size, kernel_size=int(ks[1]), stride=1, padding=0)
-                    #MultiScale_TemporalConv(input_sz, self.hidden_size)
+                    nn.Conv1d(
+                        input_sz,
+                        self.hidden_size,
+                        kernel_size=int(ks[1]),
+                        stride=1,
+                        padding=0,
+                    )
+                    # MultiScale_TemporalConv(input_sz, self.hidden_size)
                 )
                 modules.append(nn.BatchNorm1d(self.hidden_size))
                 modules.append(nn.ReLU(inplace=True))
@@ -743,18 +764,21 @@ class TemporalConv(nn.Module):
     def update_lgt(self, lgt):
         feat_len = copy.deepcopy(lgt)
         for ks in self.kernel_size:
-            if ks[0] == 'P':
+            if ks[0] == "P":
                 feat_len = torch.div(feat_len, 2)
             else:
                 feat_len -= int(ks[1]) - 1
-                #pass
+                # pass
         return feat_len
 
     def forward(self, frame_feat, lgt):
         visual_feat = self.temporal_conv(frame_feat)
         lgt = self.update_lgt(lgt)
-        logits = None if self.num_classes == -1 \
+        logits = (
+            None
+            if self.num_classes == -1
             else self.fc(visual_feat.transpose(1, 2)).transpose(1, 2)
+        )
         return {
             "visual_feat": visual_feat.permute(2, 0, 1),
             "conv_logits": logits.permute(2, 0, 1),
@@ -762,103 +786,597 @@ class TemporalConv(nn.Module):
         }
 
 
-# テスト用コード
-if __name__ == "__main__":
-    # デバイスの設定
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-    
-    # モデルパラメータ
-    input_size = 75  # 入力特徴量のサイズ
-    hidden_size = 128  # 隠れ層のサイズ
-    conv_type = 7  # 畳み込みタイプ
-    
-    # サンプルデータの作成
-    batch_size = 16
-    seq_length = 100  # シーケンス長
-    
-    # 入力テンソル作成 [batch_size, input_size, seq_length]
-    input_tensor = torch.randn(batch_size, input_size, seq_length).to(device)
-    
-    # 系列長の作成（バッチ内の各サンプルのシーケンス長）
-    lengths = torch.full((batch_size,), seq_length, dtype=torch.long).to(device)
-    
-    # モデルのインスタンス化と設定
-    model = TemporalConv(
-        input_size=input_size,
-        hidden_size=hidden_size,
-        conv_type=conv_type,
+class DualFeatureTemporalConv(nn.Module):
+    """
+    骨格座標と手の空間的特徴を別々の畳み込み層で処理するモデル
+
+    Args:
+        skeleton_input_size: 骨格座標の入力チャンネル数 (C * J)
+        hand_feature_size: 手の空間的特徴の入力チャンネル数
+        skeleton_hidden_size: 骨格特徴の隠れ層サイズ
+        hand_hidden_size: 手の特徴の隠れ層サイズ
+        fusion_hidden_size: 融合後の隠れ層サイズ
+        conv_type: 畳み込みタイプ (0-8)
+        use_bn: バッチ正規化使用フラグ
+        num_classes: 分類クラス数 (-1の場合は特徴抽出のみ)
+    """
+
+    def __init__(
+        self,
+        skeleton_input_size,
+        hand_feature_size,
+        skeleton_hidden_size=128,
+        hand_hidden_size=64,
+        fusion_hidden_size=192,  # 結合後の特徴量サイズ (デフォルトは両方の和)
+        conv_type=2,
         use_bn=True,
-        num_classes=64  # 分類するクラス数（-1の場合は特徴抽出のみ）
-    ).to(device)
-    
-    print(f"Model structure: {model}")
-    
-    # 入力データの形状確認
-    print(f"Input tensor shape: {input_tensor.shape}")
-    print(f"Initial lengths: {lengths}")
-    
-    # モデルを評価モードに設定
-    model.eval()
-    
-    # 推論実行
-    with torch.no_grad():
-        output = model(input_tensor, lengths)
-    
-    # 出力結果の表示
-    print("\nOutput:")
-    for key, value in output.items():
-        if isinstance(value, torch.Tensor):
-            print(f"{key} shape: {value.shape}")
+        num_classes=-1,
+    ):
+        super(DualFeatureTemporalConv, self).__init__()
+        self.use_bn = use_bn
+        self.skeleton_input_size = skeleton_input_size
+        self.hand_feature_size = hand_feature_size
+        self.skeleton_hidden_size = skeleton_hidden_size
+        self.hand_hidden_size = hand_hidden_size
+        self.fusion_hidden_size = fusion_hidden_size
+        self.num_classes = num_classes
+        self.conv_type = conv_type
+
+        # 骨格座標用の時間的畳み込み層
+        self.skeleton_conv = self._create_temporal_conv(
+            self.skeleton_input_size, self.skeleton_hidden_size
+        )
+
+        # 手の特徴量用の時間的畳み込み層
+        self.hand_conv = self._create_temporal_conv(
+            self.hand_feature_size, self.hand_hidden_size
+        )
+
+        # 特徴量融合後の処理層
+        # 融合された特徴量に対する追加の変換層
+        self.fusion_layer = nn.Sequential(
+            nn.Conv1d(
+                self.skeleton_hidden_size + self.hand_hidden_size,
+                self.fusion_hidden_size,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+            ),
+            nn.BatchNorm1d(self.fusion_hidden_size),
+            nn.ReLU(inplace=True),
+        )
+
+        # 分類層 (num_classes > 0 の場合)
+        if self.num_classes != -1:
+            self.fc = nn.Linear(self.fusion_hidden_size, self.num_classes)
+
+    def _create_temporal_conv(self, input_size, hidden_size):
+        """畳み込み層の作成関数"""
+        if self.conv_type == 0:
+            kernel_size = ["K3"]
+        elif self.conv_type == 1:
+            kernel_size = ["K5", "P2"]
+        elif self.conv_type == 2:
+            kernel_size = ["K5", "P2", "K5", "P2"]
+        elif self.conv_type == 3:
+            kernel_size = ["K5", "K5", "P2"]
+        elif self.conv_type == 4:
+            kernel_size = ["K5", "K5"]
+        elif self.conv_type == 5:
+            kernel_size = ["K5", "P2", "K5"]
+        elif self.conv_type == 6:
+            kernel_size = ["P2", "K5", "K5"]
+        elif self.conv_type == 7:
+            kernel_size = ["P2", "K5", "P2", "K5"]
+        elif self.conv_type == 8:
+            kernel_size = ["P2", "P2", "K5", "K5"]
+
+        modules = []
+        for layer_idx, ks in enumerate(kernel_size):
+            input_sz = (
+                input_size
+                if layer_idx == 0
+                or self.conv_type == 6
+                and layer_idx == 1
+                or self.conv_type == 7
+                and layer_idx == 1
+                or self.conv_type == 8
+                and layer_idx == 2
+                else hidden_size
+            )
+            if ks[0] == "P":
+                modules.append(nn.MaxPool1d(kernel_size=int(ks[1]), ceil_mode=False))
+            elif ks[0] == "K":
+                modules.append(
+                    nn.Conv1d(
+                        input_sz,
+                        hidden_size,
+                        kernel_size=int(ks[1]),
+                        stride=1,
+                        padding=0,
+                    )
+                )
+                modules.append(nn.BatchNorm1d(hidden_size))
+                modules.append(nn.ReLU(inplace=True))
+
+        return nn.Sequential(*modules)
+
+    def update_lgt(self, lgt):
+        """系列長の更新"""
+        feat_len = copy.deepcopy(lgt)
+        for ks in (
+            self.kernel_size
+            if hasattr(self, "kernel_size")
+            else (
+                self.conv_type == 0
+                and ["K3"]
+                or self.conv_type == 1
+                and ["K5", "P2"]
+                or self.conv_type == 2
+                and ["K5", "P2", "K5", "P2"]
+                or self.conv_type == 3
+                and ["K5", "K5", "P2"]
+                or self.conv_type == 4
+                and ["K5", "K5"]
+                or self.conv_type == 5
+                and ["K5", "P2", "K5"]
+                or self.conv_type == 6
+                and ["P2", "K5", "K5"]
+                or self.conv_type == 7
+                and ["P2", "K5", "P2", "K5"]
+                or ["P2", "P2", "K5", "K5"]
+            )
+        ):
+            if ks[0] == "P":
+                feat_len = torch.div(feat_len, 2, rounding_mode="floor")
+            else:
+                feat_len -= int(ks[1]) - 1
+        return feat_len
+
+    def forward(self, skeleton_feat, hand_feat, lgt):
+        """
+        順伝播処理
+
+        Args:
+            skeleton_feat: 骨格特徴量 [batch_size, C*J, T]
+            hand_feat: 手の特徴量 [batch_size, hand_feature_size, T]
+            lgt: 各サンプルの系列長
+
+        Returns:
+            dict: 処理結果の辞書
+        """
+        # 骨格特徴の処理
+        skeleton_visual_feat = self.skeleton_conv(skeleton_feat)
+
+        # 手の特徴の処理
+        hand_visual_feat = self.hand_conv(hand_feat)
+
+        # 系列長の更新
+        updated_lgt = self.update_lgt(lgt)
+
+        # パディングが必要な場合は長さを揃える
+        if skeleton_visual_feat.size(2) != hand_visual_feat.size(2):
+            # より短い方を長い方に合わせる
+            if skeleton_visual_feat.size(2) < hand_visual_feat.size(2):
+                # パディングの計算
+                pad_size = hand_visual_feat.size(2) - skeleton_visual_feat.size(2)
+                skeleton_visual_feat = F.pad(skeleton_visual_feat, (0, pad_size))
+            else:
+                pad_size = skeleton_visual_feat.size(2) - hand_visual_feat.size(2)
+                hand_visual_feat = F.pad(hand_visual_feat, (0, pad_size))
+
+        # 特徴量の結合 (チャネル次元に沿って結合)
+        combined_feat = torch.cat([skeleton_visual_feat, hand_visual_feat], dim=1)
+
+        # 融合処理
+        fused_feat = self.fusion_layer(combined_feat)
+
+        # クラス分類 (必要な場合)
+        if self.num_classes != -1:
+            # [B, C, T] -> [B, T, C] -> 適用 -> [B, T, num_classes] -> [B, num_classes, T]
+            logits = self.fc(fused_feat.transpose(1, 2)).transpose(1, 2)
         else:
-            print(f"{key}: {value}")
-    
-    # 更新された系列長の確認
-    updated_lengths = output["feat_len"]
-    print(f"Updated lengths: {updated_lengths}")
-    print("conv_logits: ", output["conv_logits"].shape)
-    
-    # メモリ情報（GPUを使用している場合）
-    if torch.cuda.is_available():
-        print(f"\nGPU Memory allocated: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
-        print(f"GPU Memory cached: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
+            logits = None
+
+        return {
+            "visual_feat": fused_feat.permute(2, 0, 1),  # [T, B, C]
+            "conv_logits": (
+                None if logits is None else logits.permute(2, 0, 1)
+            ),  # [T, B, num_classes]
+            "feat_len": updated_lgt.cpu(),
+            # 個別の特徴量も返すと分析に便利
+            "skeleton_feat": skeleton_visual_feat.permute(
+                2, 0, 1
+            ),  # [T, B, C_skeleton]
+            "hand_feat": hand_visual_feat.permute(2, 0, 1),  # [T, B, C_hand]
+        }
+
+    def __str__(self):
+        """モデルの構造を表示するための文字列表現"""
+        return (
+            f"DualFeatureTemporalConv(\n"
+            f"  skeleton_input: {self.skeleton_input_size}, skeleton_hidden: {self.skeleton_hidden_size}\n"
+            f"  hand_input: {self.hand_feature_size}, hand_hidden: {self.hand_hidden_size}\n"
+            f"  fusion_hidden: {self.fusion_hidden_size}, num_classes: {self.num_classes}\n"
+            f"  conv_type: {self.conv_type}\n"
+            f")"
+        )
 
 
-# # 使用例
+class DualCNNWithCTC(nn.Module):
+    """
+    骨格座標と手の特徴量のための二つの1D-CNNを使用し、
+    CTC損失関数とビームサーチによる評価を行うモデル
+
+    CorrNetを参考にした実装
+    """
+
+    def __init__(
+        self,
+        skeleton_input_size,
+        hand_feature_size,
+        skeleton_hidden_size=128,
+        hand_hidden_size=64,
+        fusion_hidden_size=192,
+        dropout_rate=0.2,
+        conv_type=2,
+        num_classes=64,
+        blank_idx=0,
+    ):
+        super(DualCNNWithCTC, self).__init__()
+
+        self.blank_id = blank_idx
+        self.num_classes = num_classes
+
+        # 骨格データと手の特徴量のための二つの1D-CNN
+        self.dual_feature_cnn = DualFeatureTemporalConv(
+            skeleton_input_size=skeleton_input_size,
+            hand_feature_size=hand_feature_size,
+            skeleton_hidden_size=skeleton_hidden_size,
+            hand_hidden_size=hand_hidden_size,
+            fusion_hidden_size=fusion_hidden_size,
+            conv_type=conv_type,
+            use_bn=True,
+            num_classes=-1,  # 特徴抽出のみを行う
+        )
+
+        # 融合特徴量からクラス予測を行う分類層
+        self.classifier = nn.Linear(fusion_hidden_size, num_classes)
+
+        # ログソフトマックス（CTC損失用）
+        self.log_softmax = nn.LogSoftmax(dim=-1)
+
+        # CTC損失関数
+        self.ctc_loss = nn.CTCLoss(
+            blank=blank_idx, zero_infinity=True, reduction="mean"
+        )
+
+        # モデルの初期化
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        """
+        重みの初期化を改良した関数
+        """
+        # Classifier層の初期化 - より均一な分布を目指す
+        nn.init.xavier_uniform_(
+            self.classifier.weight, gain=0.01
+        )  # gainを小さくして初期値を抑制
+
+        if self.classifier.bias is not None:
+            # バイアスは最初はゼロに近い値に設定
+            nn.init.constant_(self.classifier.bias, 0)
+
+            # ブランク以外のクラスにわずかに正のバイアスを与える
+            with torch.no_grad():
+                for i in range(self.classifier.bias.size(0)):
+                    if i != self.blank_id:  # ブランク以外のクラス
+                        self.classifier.bias[i] += 0.1  # 小さな正のバイアス
+
+    def forward(
+        self,
+        skeleton_feat,
+        hand_feat,
+        lgt,
+        tgt_feature=None,
+        target_lengths=None,
+        mode="train",
+        blank_id=None,
+        current_epoch=None,
+    ):
+        """
+        順伝播処理
+
+        Args:
+            skeleton_feat: 骨格特徴量 [batch_size, C*J, T]
+            hand_feat: 手の特徴量 [batch_size, hand_feature_size, T]
+            lgt: 各サンプルの系列長 [batch_size]
+            tgt_feature: ターゲットラベル [batch, max_target_length]
+            target_lengths: ターゲットの長さ [batch]
+            mode: 'train', 'eval', 'test'のいずれか
+            blank_id: ブランクインデックス（指定なしの場合はself.blank_id）
+            current_epoch: 現在のエポック番号（ビームサーチのパラメータ調整用）
+
+        Returns:
+            mode='train': (loss, log_probs)
+            mode='eval': (loss, decoded_sequences)
+            mode='test': decoded_sequences
+        """
+        # blank_idが指定されていない場合はクラス変数を使用
+        if blank_id is None:
+            blank_id = self.blank_id
+
+        # 1D-CNN部分の処理（特徴抽出）
+        cnn_output = self.dual_feature_cnn(skeleton_feat, hand_feat, lgt)
+
+        # 融合された特徴量を取得 [T, B, C]
+        fused_features = cnn_output["visual_feat"]
+
+        # 特徴長の更新
+        updated_lgt = cnn_output["feat_len"]
+
+        # 分類層で各フレームのクラス予測を行う
+        # [T, B, C] -> [T, B, num_classes]
+        logits = self.classifier(fused_features)
+
+        # ログソフトマックスを適用
+        log_probs = self.log_softmax(logits)  # [T, B, num_classes]
+
+        if mode == "train":
+            # CTC損失を計算
+            loss = self.ctc_loss(
+                log_probs,  # [T, B, num_classes]
+                tgt_feature,  # [batch, max_target_length]
+                updated_lgt,  # [batch]
+                target_lengths,  # [batch]
+            )
+            return loss, log_probs
+
+        elif mode == "eval":
+            # 評価モード: 損失計算と復号化
+            loss = self.ctc_loss(
+                log_probs,
+                tgt_feature,
+                updated_lgt,
+                target_lengths,
+            )
+            # ビームサーチによる復号化
+            from one_dcnn_transformer_encoder.models.beam_search import (
+                beam_search_decode,
+            )
+
+            decoded_sequences = beam_search_decode(
+                log_probs,
+                beam_width=10,
+                blank_id=self.blank_id,
+                current_epoch=current_epoch,
+            )
+            return loss, decoded_sequences
+
+        elif mode == "test":
+            # テストモード: 復号化のみ
+            from one_dcnn_transformer_encoder.models.beam_search import (
+                beam_search_decode,
+            )
+
+            decoded_sequences = beam_search_decode(
+                log_probs,
+                beam_width=10,
+                blank_id=self.blank_id,
+                current_epoch=current_epoch,
+            )
+            return decoded_sequences
+
+    def evaluate_individual_features(
+        self,
+        skeleton_feat=None,
+        hand_feat=None,
+        lgt=None,
+        tgt_feature=None,
+        target_lengths=None,
+        mode="eval",
+    ):
+        """
+        個別の特徴量を評価するためのメソッド（アブレーション実験用）
+
+        Args:
+            skeleton_feat: 骨格特徴量 [batch_size, C*J, T]（Noneの場合は手の特徴量のみ使用）
+            hand_feat: 手の特徴量 [batch_size, hand_feature_size, T]（Noneの場合は骨格特徴量のみ使用）
+            lgt: 各サンプルの系列長 [batch_size]
+            tgt_feature: ターゲットラベル [batch, max_target_length]
+            target_lengths: ターゲットの長さ [batch]
+            mode: 'eval' または 'test'
+
+        Returns:
+            mode='eval': (loss, decoded_sequences)
+            mode='test': decoded_sequences
+        """
+        batch_size = lgt.size(0)
+        device = lgt.device
+        seq_length = None
+
+        # 骨格データまたは手の特徴量がNoneの場合、ゼロテンソルで代用
+        if skeleton_feat is None and hand_feat is not None:
+            # 手の特徴量のみを使用
+            seq_length = hand_feat.size(2)
+            skeleton_feat = torch.zeros(
+                batch_size,
+                self.dual_feature_cnn.skeleton_input_size,
+                seq_length,
+                device=device,
+            )
+
+        elif hand_feat is None and skeleton_feat is not None:
+            # 骨格データのみを使用
+            seq_length = skeleton_feat.size(2)
+            hand_feat = torch.zeros(
+                batch_size,
+                self.dual_feature_cnn.hand_feature_size,
+                seq_length,
+                device=device,
+            )
+
+        # 通常の順伝播処理を実行
+        if mode == "eval":
+            return self.forward(
+                skeleton_feat, hand_feat, lgt, tgt_feature, target_lengths, mode=mode
+            )
+        else:
+            return self.forward(skeleton_feat, hand_feat, lgt, mode=mode)
+
+    def ablation_study(
+        self,
+        skeleton_feat,
+        hand_feat,
+        lgt,
+        tgt_feature,
+        target_lengths,
+    ):
+        """
+        アブレーション実験（特徴量の寄与度分析）を行う
+
+        Args:
+            skeleton_feat: 骨格特徴量 [batch_size, C*J, T]
+            hand_feat: 手の特徴量 [batch_size, hand_feature_size, T]
+            lgt: 各サンプルの系列長 [batch_size]
+            tgt_feature: ターゲットラベル [batch, max_target_length]
+            target_lengths: ターゲットの長さ [batch]
+
+        Returns:
+            dict: 3種類の実験結果（骨格のみ、手のみ、両方）
+        """
+        # 骨格特徴量のみ
+        skel_loss, skel_decoded = self.evaluate_individual_features(
+            skeleton_feat=skeleton_feat,
+            hand_feat=None,
+            lgt=lgt,
+            tgt_feature=tgt_feature,
+            target_lengths=target_lengths,
+        )
+
+        # 手の特徴量のみ
+        hand_loss, hand_decoded = self.evaluate_individual_features(
+            skeleton_feat=None,
+            hand_feat=hand_feat,
+            lgt=lgt,
+            tgt_feature=tgt_feature,
+            target_lengths=target_lengths,
+        )
+
+        # 両方の特徴量
+        both_loss, both_decoded = self.forward(
+            skeleton_feat=skeleton_feat,
+            hand_feat=hand_feat,
+            lgt=lgt,
+            tgt_feature=tgt_feature,
+            target_lengths=target_lengths,
+            mode="eval",
+        )
+
+        return {
+            "skeleton_only": {
+                "loss": skel_loss.item(),
+                "decoded": skel_decoded,
+            },
+            "hand_only": {
+                "loss": hand_loss.item(),
+                "decoded": hand_decoded,
+            },
+            "both_features": {
+                "loss": both_loss.item(),
+                "decoded": both_decoded,
+            },
+        }
+
+
+# # テスト用コード
 # if __name__ == "__main__":
-#     # 入力テンソルの作成
-#     N, C, T, J = 32, 3, 100, 25  # 例
-#     input_tensor = torch.randn(N, C, T, J)  # 形状: [32, 3, 100, 25]
+#     # デバイスの設定
+#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#     print(f"Using device: {device}")
 
-#     # 入力テンソルの形状を [N, C * J, T] に変換
-#     input_tensor = input_tensor.permute(0, 3, 1, 2).contiguous().view(N, C * J, T)  # [32, 75, 100]
+#     # モデルパラメータ
+#     skeleton_input_size = 75  # 骨格座標の入力サイズ (C*J, 例えば 3*25)
+#     hand_feature_size = 20  # 手の特徴量の入力サイズ
+#     num_classes = 64  # 分類クラス数
 
-#     # モデルのインスタンス化
-#     num_classes = 100  # 例: 100クラス分類
-#     in_channels = C * J  # 3 * 25 = 75
-#     out_channels = 64  # 出力チャンネル数
+#     # サンプルデータの作成
+#     batch_size = 16
+#     seq_length = 100  # シーケンス長
+#     max_target_length = 20  # ターゲットの最大長
 
-#     # RestNet系
-#     model = resnet18_1d(num_classes=num_classes, in_channels=in_channels, kernel_size=3, stride=1 , padding=0, bias=False)
-#     output = model(input_tensor)
-#     print(output.shape, input_tensor.shape)  # 期待される形状: [batch_size, out_channels, new_sequence_length]
+#     # 骨格データの作成 [batch_size, skeleton_input_size, seq_length]
+#     skeleton_tensor = torch.randn(batch_size, skeleton_input_size, seq_length).to(
+#         device
+#     )
 
-#     # シンプルなCNNモデルのインスタンス化
-#     model1 = create_simple_cnn1layer(in_channels, out_channels, kernel_size=25, stride=1, padding=1, dropout_rate=0.2, bias=False)
-#     output1 = model1(input_tensor)
-#     print(f"SimpleCNN1Layer output shape: {output1.shape}, ", input_tensor.shape)  # 期待される形状: [32, out_channels, new_sequence_length]
+#     # 手の特徴量データの作成 [batch_size, hand_feature_size, seq_length]
+#     hand_tensor = torch.randn(batch_size, hand_feature_size, seq_length).to(device)
 
-#      # 2層CNN
-#     model2 = create_simple_cnn2layer(in_channels=in_channels, mid_channels=32, out_channels=64)
-#     output2 = model2(input_tensor)
-#     print("2層CNN出力形状:", output2.shape)
+#     # 系列長の作成（入力系列長）
+#     lengths = torch.full((batch_size,), seq_length, dtype=torch.long).to(device)
 
-#     # プーリング付き2層CNN
-#     model3 = create_simple_cnn2layer_with_pooling(in_channels=in_channels)
-#     output3 = model3(input_tensor)
-#     print("プーリング付き2層CNN出力形状:", output3.shape)
+#     # ダミーのターゲット系列を作成（0からnum_classes-1の整数）
+#     target_tensor = torch.randint(
+#         1, num_classes, (batch_size, max_target_length), dtype=torch.long
+#     ).to(device)
 
-#     # 残差接続付き1層CNN
-#     model4 = create_simple_cnn1layer_with_residual(in_channels=in_channels, out_channels=out_channels)
-#     output4 = model4(input_tensor)
-#     print("残差接続付き1層CNN出力形状:", output4.shape)
+#     # ターゲット長（実際のラベル長）- 最大長よりも短いランダムな長さ
+#     target_lengths = torch.randint(
+#         5, max_target_length + 1, (batch_size,), dtype=torch.long
+#     ).to(device)
+
+#     # モデル初期化
+#     model = DualCNNWithCTC(
+#         skeleton_input_size=skeleton_input_size,
+#         hand_feature_size=hand_feature_size,
+#         skeleton_hidden_size=128,
+#         hand_hidden_size=64,
+#         fusion_hidden_size=192,
+#         num_classes=num_classes,
+#         blank_idx=0,
+#     ).to(device)
+
+#     # トレーニングモードでテスト
+#     model.train()
+#     loss, log_probs = model(
+#         skeleton_tensor,
+#         hand_tensor,
+#         lengths,
+#         target_tensor,
+#         target_lengths,
+#         mode="train",
+#     )
+#     print(f"\n===== トレーニングモード =====")
+#     print(f"Loss: {loss.item():.4f}")
+#     print(f"Log probs shape: {log_probs.shape}")
+
+#     # 評価モードでテスト
+#     model.eval()
+#     with torch.no_grad():
+#         eval_loss, decoded_seqs = model(
+#             skeleton_tensor,
+#             hand_tensor,
+#             lengths,
+#             target_tensor,
+#             target_lengths,
+#             mode="eval",
+#         )
+#         print(f"\n===== 評価モード =====")
+#         print(f"Eval Loss: {eval_loss.item():.4f}")
+#         print(f"デコード結果サンプル (バッチ0): {decoded_seqs[0]}")
+#         print(target_tensor[0], target_tensor.shape)
+#         # アブレーション実験
+#         ablation_results = model.ablation_study(
+#             skeleton_tensor, hand_tensor, lengths, target_tensor, target_lengths
+#         )
+
+#         print("\n===== アブレーション実験 =====")
+#         print(f"骨格のみ - 損失: {ablation_results['skeleton_only']['loss']:.4f}")
+#         print(f"手のみ - 損失: {ablation_results['hand_only']['loss']:.4f}")
+#         print(f"両方 - 損失: {ablation_results['both_features']['loss']:.4f}")
+
+#         # テストモードでテスト
+#         test_decoded = model(skeleton_tensor, hand_tensor, lengths, mode="test")
+#         print(f"\n===== テストモード =====")
+#         print(f"デコード結果サンプル (バッチ0): {test_decoded[0]}")

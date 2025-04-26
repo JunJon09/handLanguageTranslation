@@ -51,7 +51,7 @@ def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
     feature_shape = (
         len(config.use_features),
         -1,
-        len(use_landmarks) + config.spatial_spatial_feature,
+        len(use_landmarks)
     )
     token_shape = (-1,)
     num_workers = os.cpu_count()
@@ -209,6 +209,8 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
             feature_pad_mask = batch_sample["feature_pad_mask"]
             tokens = batch_sample["token"]
             tokens_pad_mask = batch_sample["token_pad_mask"]
+            spatial_feature = batch_sample["spatial_feature"]
+            print("spatial_feature", spatial_feature.shape, feature.shape)
             feature = feature.to(device)
             feature_pad_mask = feature_pad_mask.to(device)
             tokens = tokens.to(device)
