@@ -1047,9 +1047,9 @@ class DualCNNWithCTC(nn.Module):
         self.log_softmax = nn.LogSoftmax(dim=-1)
 
         # CTC損失関数
-        self.ctc_loss = nn.CTCLoss(
-            blank=blank_idx, zero_infinity=True, reduction="mean"
-        )
+        # self.ctc_loss = nn.CTCLoss(
+        #     blank=blank_idx, zero_infinity=True, reduction="mean"
+        # )
 
         # モデルの初期化
         self._initialize_weights()
@@ -1098,9 +1098,7 @@ class DualCNNWithCTC(nn.Module):
             current_epoch: 現在のエポック番号（ビームサーチのパラメータ調整用）
 
         Returns:
-            mode='train': (loss, log_probs)
-            mode='eval': (loss, decoded_sequences)
-            mode='test': decoded_sequences
+            hidden features and logits
         """
         # blank_idが指定されていない場合はクラス変数を使用
         if blank_id is None:
@@ -1119,9 +1117,14 @@ class DualCNNWithCTC(nn.Module):
         # [T, B, C] -> [T, B, num_classes]
         logits = self.classifier(fused_features)
 
-        # ログソフトマックスを適用
-        log_probs = self.log_softmax(logits)  # [T, B, num_classes]
+        # # ログソフトマックスを適用
+        # log_probs = self.log_softmax(logits)  # [T, B, num_classes]
 
+        # 隠れ層の特徴量と出力のみを返す
+        return fused_features, logits, updated_lgt
+
+        # 以下のCTC関連処理をコメントアウト
+        """
         if mode == "train":
             # CTC損失を計算
             loss = self.ctc_loss(
@@ -1166,7 +1169,10 @@ class DualCNNWithCTC(nn.Module):
                 current_epoch=current_epoch,
             )
             return decoded_sequences
+        """
 
+    # 残りのメソッドもコメントアウト
+    """
     def evaluate_individual_features(
         self,
         skeleton_feat=None,
@@ -1176,7 +1182,7 @@ class DualCNNWithCTC(nn.Module):
         target_lengths=None,
         mode="eval",
     ):
-        """
+        \"""
         個別の特徴量を評価するためのメソッド（アブレーション実験用）
 
         Args:
@@ -1190,7 +1196,7 @@ class DualCNNWithCTC(nn.Module):
         Returns:
             mode='eval': (loss, decoded_sequences)
             mode='test': decoded_sequences
-        """
+        \"""
         batch_size = lgt.size(0)
         device = lgt.device
         seq_length = None
@@ -1232,7 +1238,7 @@ class DualCNNWithCTC(nn.Module):
         tgt_feature,
         target_lengths,
     ):
-        """
+        \"""
         アブレーション実験（特徴量の寄与度分析）を行う
 
         Args:
@@ -1244,7 +1250,7 @@ class DualCNNWithCTC(nn.Module):
 
         Returns:
             dict: 3種類の実験結果（骨格のみ、手のみ、両方）
-        """
+        \"""
         # 骨格特徴量のみ
         skel_loss, skel_decoded = self.evaluate_individual_features(
             skeleton_feat=skeleton_feat,
@@ -1287,96 +1293,102 @@ class DualCNNWithCTC(nn.Module):
                 "decoded": both_decoded,
             },
         }
+    """
 
 
 # # テスト用コード
-# if __name__ == "__main__":
-#     # デバイスの設定
-#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-#     print(f"Using device: {device}")
+if __name__ == "__main__":
+    # デバイスの設定
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
 
-#     # モデルパラメータ
-#     skeleton_input_size = 75  # 骨格座標の入力サイズ (C*J, 例えば 3*25)
-#     hand_feature_size = 20  # 手の特徴量の入力サイズ
-#     num_classes = 64  # 分類クラス数
+    # モデルパラメータ
+    skeleton_input_size = 75  # 骨格座標の入力サイズ (C*J, 例えば 3*25)
+    hand_feature_size = 20  # 手の特徴量の入力サイズ
+    num_classes = 64  # 分類クラス数
 
-#     # サンプルデータの作成
-#     batch_size = 16
-#     seq_length = 100  # シーケンス長
-#     max_target_length = 20  # ターゲットの最大長
+    # サンプルデータの作成
+    batch_size = 16
+    seq_length = 100  # シーケンス長
+    max_target_length = 20  # ターゲットの最大長
 
-#     # 骨格データの作成 [batch_size, skeleton_input_size, seq_length]
-#     skeleton_tensor = torch.randn(batch_size, skeleton_input_size, seq_length).to(
-#         device
-#     )
+    # 骨格データの作成 [batch_size, skeleton_input_size, seq_length]
+    skeleton_tensor = torch.randn(batch_size, skeleton_input_size, seq_length).to(
+        device
+    )
 
-#     # 手の特徴量データの作成 [batch_size, hand_feature_size, seq_length]
-#     hand_tensor = torch.randn(batch_size, hand_feature_size, seq_length).to(device)
+    # 手の特徴量データの作成 [batch_size, hand_feature_size, seq_length]
+    hand_tensor = torch.randn(batch_size, hand_feature_size, seq_length).to(device)
 
-#     # 系列長の作成（入力系列長）
-#     lengths = torch.full((batch_size,), seq_length, dtype=torch.long).to(device)
+    # 系列長の作成（入力系列長）
+    lengths = torch.full((batch_size,), seq_length, dtype=torch.long).to(device)
+    # ダミーのターゲット系列を作成（0からnum_classes-1の整数）
+    target_tensor = torch.randint(
+        1, num_classes, (batch_size, max_target_length), dtype=torch.long
+    ).to(device)
 
-#     # ダミーのターゲット系列を作成（0からnum_classes-1の整数）
-#     target_tensor = torch.randint(
-#         1, num_classes, (batch_size, max_target_length), dtype=torch.long
-#     ).to(device)
+    # ターゲット長（実際のラベル長）- 最大長よりも短いランダムな長さ
+    target_lengths = torch.randint(
+        5, max_target_length + 1, (batch_size,), dtype=torch.long
+    ).to(device)
 
-#     # ターゲット長（実際のラベル長）- 最大長よりも短いランダムな長さ
-#     target_lengths = torch.randint(
-#         5, max_target_length + 1, (batch_size,), dtype=torch.long
-#     ).to(device)
+    # モデル初期化
+    model = DualCNNWithCTC(
+        skeleton_input_size=skeleton_input_size,
+        hand_feature_size=hand_feature_size,
+        skeleton_hidden_size=128,
+        hand_hidden_size=64,
+        fusion_hidden_size=192,
+        num_classes=num_classes,
+        blank_idx=0,
+    ).to(device)
 
-#     # モデル初期化
-#     model = DualCNNWithCTC(
-#         skeleton_input_size=skeleton_input_size,
-#         hand_feature_size=hand_feature_size,
-#         skeleton_hidden_size=128,
-#         hand_hidden_size=64,
-#         fusion_hidden_size=192,
-#         num_classes=num_classes,
-#         blank_idx=0,
-#     ).to(device)
+    # トレーニングモードでテスト
+    model.train()
+    fused_features, log_probs, updated_lgt = model(
+        skeleton_tensor,
+        hand_tensor,
+        lengths,
+        target_tensor,
+        target_lengths,
+        mode="train",
+    )
+    print(f"Fused features shape: {fused_features.shape}")
+    print(f"Log probs shape: {log_probs.shape}")
+    print(f"Updated lengths: {updated_lgt}")
+    print(f"Fused features: {fused_features[0]}")
+    print(skeleton_tensor.shape)
+    # print(f"\n===== トレーニングモード =====")
+    # print(f"Loss: {loss.item():.4f}")
+    # print(f"Log probs shape: {log_probs.shape}")
 
-#     # トレーニングモードでテスト
-#     model.train()
-#     loss, log_probs = model(
-#         skeleton_tensor,
-#         hand_tensor,
-#         lengths,
-#         target_tensor,
-#         target_lengths,
-#         mode="train",
-#     )
-#     print(f"\n===== トレーニングモード =====")
-#     print(f"Loss: {loss.item():.4f}")
-#     print(f"Log probs shape: {log_probs.shape}")
+    # # 評価モードでテスト
+    # model.eval()
+    # with torch.no_grad():
+    #     eval_loss, decoded_seqs = model(
+    #         skeleton_tensor,
+    #         hand_tensor,
+    #         lengths,
+    #         target_tensor,
+    #         target_lengths,
+    #         mode="eval",
+    #     )
+    #     print(f"\n===== 評価モード =====")
+    #     print(f"Eval Loss: {eval_loss.item():.4f}")
+    #     print(f"デコード結果サンプル (バッチ0): {decoded_seqs[0]}")
+    #     print(target_tensor[0], target_tensor.shape)
+    #     # アブレーション実験
+    #     ablation_results = model.ablation_study(
+    #         skeleton_tensor, hand_tensor, lengths, target_tensor, target_lengths
+    #     )
 
-#     # 評価モードでテスト
-#     model.eval()
-#     with torch.no_grad():
-#         eval_loss, decoded_seqs = model(
-#             skeleton_tensor,
-#             hand_tensor,
-#             lengths,
-#             target_tensor,
-#             target_lengths,
-#             mode="eval",
-#         )
-#         print(f"\n===== 評価モード =====")
-#         print(f"Eval Loss: {eval_loss.item():.4f}")
-#         print(f"デコード結果サンプル (バッチ0): {decoded_seqs[0]}")
-#         print(target_tensor[0], target_tensor.shape)
-#         # アブレーション実験
-#         ablation_results = model.ablation_study(
-#             skeleton_tensor, hand_tensor, lengths, target_tensor, target_lengths
-#         )
+    #     print("\n===== アブレーション実験 =====")
+    #     print(f"骨格のみ - 損失: {ablation_results['skeleton_only']['loss']:.4f}")
+    #     print(f"手のみ - 損失: {ablation_results['hand_only']['loss']:.4f}")
+    #     print(f"両方 - 損失: {ablation_results['both_features']['loss']:.4f}")
 
-#         print("\n===== アブレーション実験 =====")
-#         print(f"骨格のみ - 損失: {ablation_results['skeleton_only']['loss']:.4f}")
-#         print(f"手のみ - 損失: {ablation_results['hand_only']['loss']:.4f}")
-#         print(f"両方 - 損失: {ablation_results['both_features']['loss']:.4f}")
-
-#         # テストモードでテスト
-#         test_decoded = model(skeleton_tensor, hand_tensor, lengths, mode="test")
-#         print(f"\n===== テストモード =====")
-#         print(f"デコード結果サンプル (バッチ0): {test_decoded[0]}")
+    #     # テストモードでテスト
+    #     test_decoded = model(skeleton_tensor, hand_tensor, lengths, mode="test")
+    #     print(f"\n===== テストモード =====")
+    #     print(f"デコード結果サンプル (バッチ0): {test_decoded[0]}")
+    # print(f"Lengths: {lengths}")

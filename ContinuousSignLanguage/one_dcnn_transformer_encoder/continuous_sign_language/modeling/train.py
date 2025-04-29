@@ -19,7 +19,7 @@ def model_train():
     VOCAB = len(key2token)
     out_channels = VOCAB
     pad_token = key2token["<pad>"]
-    blank_id = VOCAB - 1
+    blank_id = 0
     print(key2token)
     print(
         f"VOCAB サイズ: {VOCAB}, パッディングトークン: {pad_token}, ブランクID: {blank_id}"

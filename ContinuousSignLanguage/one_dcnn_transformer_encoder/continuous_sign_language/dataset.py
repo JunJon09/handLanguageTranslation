@@ -27,8 +27,8 @@ def read_dataset(input_dir=config.read_dataset_dir):
         key2token = json.load(f)
 
     VOCAB = len(key2token)
-    key2token["<pad>"] = VOCAB
-    key2token["<blank>"] = VOCAB + 1
+    key2token["<pad>"] = VOCAB + 1
+    key2token["<blank>"] = 0
 
     return train_hdf5files, val_hdf5files, test_hdf5files, key2token
 
@@ -206,7 +206,6 @@ def merge_padded_batch(
         tlen = max([feature.shape[1] for feature in feature_batch])
         merged_shape[2] = tlen
     merged_feature = merge(feature_batch, merged_shape, padding_val=feature_padding_val)
-    print(merged_feature.shape, "rfrjfojo")
     # ==========================================================
     # Merge spatial feature - 2次元用の特化した関数を使用
     # ==========================================================

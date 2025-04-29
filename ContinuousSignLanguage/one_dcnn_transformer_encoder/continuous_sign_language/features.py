@@ -319,7 +319,6 @@ class PartsBasedNormalization:
         return np.array(spatial_feature)
 
     def __call__(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        print("PartsBasedNormalization")
         feature = data["feature"]
         if self.face_num > 0:
             feature[:, :, self.face_head : self.face_head + self.face_num] = 0

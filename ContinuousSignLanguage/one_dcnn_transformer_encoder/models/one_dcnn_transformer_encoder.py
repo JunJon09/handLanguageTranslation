@@ -3,6 +3,9 @@ import cnn_transformer.models.transformer_encoer as encoder
 from torch import nn
 import torch
 import one_dcnn_transformer_encoder.models.beam_search as beam_search
+import one_dcnn_transformer_encoder.models.BiLSTM as BiLSTM
+import torch.nn.functional as F
+import one_dcnn_transformer_encoder.models.decode as decode
 
 
 class OnedCNNTransformerEncoderModel(nn.Module):
@@ -35,49 +38,71 @@ class OnedCNNTransformerEncoderModel(nn.Module):
 
         # 1DCNNモデル
         # self.cnn_model = cnn.resnet18_1d(num_classes=num_classes, in_channels=in_channels, out_channels=cnn_out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dropout_rate=dropout_rate, bias=bias)
-        self.cnn_model = cnn.create_simple_cnn1layer(
-            in_channels=in_channels,
-            out_channels=cnn_out_channels,
-            kernel_size=kernel_size,
-            stride=stride,
-            padding=padding,
-            dropout_rate=dropout_rate,
-            bias=bias,
-        )
+        # self.cnn_model = cnn.create_simple_cnn1layer(
+        #     in_channels=in_channels,
+        #     out_channels=cnn_out_channels,
+        #     kernel_size=kernel_size,
+        #     stride=stride,
+        #     padding=padding,
+        #     dropout_rate=dropout_rate,
+        #     bias=bias,
+        # )
+        self.cnn_model = cnn.DualCNNWithCTC(
+            skeleton_input_size=in_channels,
+            hand_feature_size=50,
+            skeleton_hidden_size=128,
+            hand_hidden_size=128,
+            fusion_hidden_size=192,
+            num_classes=num_classes,
+            blank_idx=blank_idx,
+        ).to("cpu")
+
         # self.cnn_model = cnn.create_simple_cnn2layer(in_channels=in_channels/2,mid_channels=cnn_out_channels, out_channels=cnn_out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dropout_rate=dropout_rate, bias=bias)
 
         inter_channels = cnn_out_channels if resNet == 0 else 512
         # TransformerEncoderモデル
 
-        self.input_projection = nn.Linear(in_channels, inter_channels)
+        # self.input_projection = nn.Linear(in_channels, inter_channels)
 
-        enlayer = nn.TransformerEncoderLayer(
-            d_model=inter_channels,
-            nhead=tren_num_heads,
-            dim_feedforward=tren_dim_ffw,
-            dropout=tren_dropout,
-            activation=activation,
-            layer_norm_eps=tren_norm_eps,
-            batch_first=batch_first,
-            norm_first=tren_norm_first,
-            bias=tren_add_bias,
+        # enlayer = nn.TransformerEncoderLayer(
+        #     d_model=inter_channels,
+        #     nhead=tren_num_heads,
+        #     dim_feedforward=tren_dim_ffw,
+        #     dropout=tren_dropout,
+        #     activation=activation,
+        #     layer_norm_eps=tren_norm_eps,
+        #     batch_first=batch_first,
+        #     norm_first=tren_norm_first,
+        #     bias=tren_add_bias,
+        # )
+        # self.tr_encoder = nn.TransformerEncoder(
+        #     encoder_layer=enlayer, num_layers=tren_num_layers
+        # )
+
+        self.temporal_model = BiLSTM.BiLSTMLayer(
+            rnn_type="LSTM",
+            input_size=192,
+            hidden_size=192,  # 隠れ層のサイズ
+            num_layers=2,
+            bidirectional=True,
         )
-        self.tr_encoder = nn.TransformerEncoder(
-            encoder_layer=enlayer, num_layers=tren_num_layers
-        )
-        
+
         # クラス分類用の線形層
-        self.classifier = nn.Linear(inter_channels, num_classes)
-        
+        # self.classifier = nn.Linear(inter_channels, num_classes)
+        self.classifier = nn.Linear(192, num_classes)
+
         # クラス毎の相互抑制を減らすための層
-        self.class_attention = nn.MultiheadAttention(embed_dim=num_classes, num_heads=1, batch_first=True)
+        self.class_attention = nn.MultiheadAttention(
+            embed_dim=num_classes, num_heads=1, batch_first=True
+        )
 
         # 重みの初期化を改善
-        self._initialize_weights()
+        # self._initialize_weights()
 
         # ログソフトマックス（CTC損失用）
         self.log_softmax = nn.LogSoftmax(dim=-1)
-        
+        gloss_dict = {'<blank>': [0], 'I': [1], 'Like': [2], 'Dislike': [3], 'banna': [4], 'apple': [5], '<pad>': [6]}
+        self.decoder = decode.Decode(gloss_dict=gloss_dict, num_classes=num_classes, search_mode="max", blank_id=blank_idx)
         # 温度パラメータ（訓練可能）
         self.temperature = nn.Parameter(torch.tensor(1.0))
 
@@ -138,6 +163,7 @@ class OnedCNNTransformerEncoderModel(nn.Module):
     def forward(
         self,
         src_feature,
+        spatial_feature,
         tgt_feature,
         src_causal_mask,
         src_padding_mask,
@@ -168,6 +194,7 @@ class OnedCNNTransformerEncoderModel(nn.Module):
 
         N, C, T, J = src_feature.shape
         src_feature = src_feature.permute(0, 3, 1, 2).contiguous().view(N, C * J, T)
+        spatial_feature = spatial_feature.permute(0, 2, 1)
         # 入力データにNaN値があるかチェック
         if torch.isnan(src_feature).any():
             print("警告: 入力src_featureにNaN値が検出されました")
@@ -185,8 +212,15 @@ class OnedCNNTransformerEncoderModel(nn.Module):
         # 大きすぎる値や小さすぎる値をクリップ
         src_feature = torch.clamp(src_feature, min=-5.0, max=5.0)
         print(src_feature.shape, "src_feature.shape")
-        cnn_out = self.cnn_model(src_feature)  # return [batch, 512, T']
-        cnn_out = cnn_out.permute(0, 2, 1)  # (batch, T', 512)
+        # cnn_out = self.cnn_model(src_feature)  # return [batch, 512, T']
+        cnn_out, cnn_logit, updated_lgt = self.cnn_model(
+            skeleton_feat=src_feature, hand_feat=spatial_feature, lgt=input_lengths
+        )
+
+        print(cnn_out.shape, "cnn_out.shape")  # [batch, T', 192]
+
+        # cnn_out = cnn_out.permute(0, 2, 1)  # (batch, T', 512)
+        # print(cnn_out.shape, "cnn_out.shape") #[batch, T', 192]
         if torch.isnan(cnn_out).any():
             print("層1の出力にNaN値が検出されました")
             # 問題のある入力値の確認
@@ -209,114 +243,138 @@ class OnedCNNTransformerEncoderModel(nn.Module):
                 if original_seq_len > cnn_seq_len:
                     src_padding_mask = src_padding_mask[:, :cnn_seq_len]
 
-                else: # シーケンスが長くなった場合はパディング
+                else:  # シーケンスが長くなった場合はパディング
                     padding_length = cnn_seq_len - original_seq_len
-                    padding = torch.zeros(src_padding_mask.size(0), padding_length, dtype=src_padding_mask.dtype, device=src_padding_mask.device)
+                    padding = torch.zeros(
+                        src_padding_mask.size(0),
+                        padding_length,
+                        dtype=src_padding_mask.dtype,
+                        device=src_padding_mask.device,
+                    )
                     src_padding_mask = torch.cat((src_padding_mask, padding), dim=1)
- 
-        tr_out = self.tr_encoder(
-            src=cnn_out, mask=src_causal_mask, src_key_padding_mask=src_padding_mask
-        )  # (batch, T', inter_channels)
 
-        if torch.isnan(tr_out).any():
-            print("Transformerの出力にNaN値が検出されました")
-            # 問題のある入力値の確認
-            problem_indices = torch.where(torch.isnan(tr_out))
-            print(
-                f"問題がある入力の要素: {tr_out[problem_indices[0][0], problem_indices[1][0], problem_indices[2][0]]}"
-            )
+        # tr_out = self.tr_encoder(
+        #     src=cnn_out, mask=src_causal_mask, src_key_padding_mask=src_padding_mask
+        # )  # (batch, T', inter_channels)
 
-        # クラス分類
-        logits = self.classifier(tr_out)  # (batch, T', num_classes)
-        
-        # マルチヘッドアテンション機構を使って、クラス間の関係性を学習
+        # if torch.isnan(tr_out).any():
+        #     print("Transformerの出力にNaN値が検出されました")
+        #     # 問題のある入力値の確認
+        #     problem_indices = torch.where(torch.isnan(tr_out))
+        #     print(
+        #         f"問題がある入力の要素: {tr_out[problem_indices[0][0], problem_indices[1][0], problem_indices[2][0]]}"
+        #     )
+
+        # # クラス分類
+        # logits = self.classifier(tr_out)  # (batch, T', num_classes)
+        tm_outputs = self.temporal_model(cnn_out, updated_lgt)
+        print(tm_outputs["predictions"].shape, "tm_outputs['predictions'].shape")
+        outputs = self.classifier(tm_outputs["predictions"])  # (batch, T', num_classes)
+       
+
+        pred = self.decoder.decode(outputs, updated_lgt, batch_first=False, probs=False)
+        conv_pred = self.decoder.decode(cnn_logit, updated_lgt, batch_first=False, probs=False)
+        print(pred, "pred")
+        print(conv_pred, "conv_pred")
+        return pred, conv_pred  
         # 各時間フレームでの予測を改善し、複数クラスの検出を促進
         # logits: (batch, T', num_classes)
-        attended_logits, _ = self.class_attention(logits, logits, logits)
-        
-        # 元のロジットとアテンション後のロジットを組み合わせる
-        # これにより、クラス間の排他的な競合を減らし、複数の手話単語の検出を可能に
-        final_logits = logits + 0.5 * attended_logits  # 重み付け係数は調整可能
+        # attended_logits, _ = self.class_attention(logits, logits, logits)
+
+        # # 元のロジットとアテンション後のロジットを組み合わせる
+        # # これにより、クラス間の排他的な競合を減らし、複数の手話単語の検出を可能に
+        # final_logits = logits + 0.5 * attended_logits  # 重み付け係数は調整可能
 
         # ログソフトマックスを適用する前に、出力分布のチェック
-        with torch.no_grad():
-            # 訓練前の出力分布を確認
-            max_logit = torch.max(final_logits).item()
-            min_logit = torch.min(final_logits).item()
-            mean_logit = torch.mean(final_logits).item()
-            std_logit = torch.std(final_logits).item()
-            print(
-                f"ロジット統計: 最大={max_logit:.4f}, 最小={min_logit:.4f}, 平均={mean_logit:.4f}, 標準偏差={std_logit:.4f}"
-            )
+        # with torch.no_grad():
+        #     # 訓練前の出力分布を確認
+        #     max_logit = torch.max(final_logits).item()
+        #     min_logit = torch.min(final_logits).item()
+        #     mean_logit = torch.mean(final_logits).item()
+        #     std_logit = torch.std(final_logits).item()
+        #     print(
+        #         f"ロジット統計: 最大={max_logit:.4f}, 最小={min_logit:.4f}, 平均={mean_logit:.4f}, 標準偏差={std_logit:.4f}"
+        #     )
 
-            # クラスごとの平均値を確認
-            class_means = torch.mean(final_logits, dim=(0, 1))
-            top5_means, top5_indices = torch.topk(class_means, 5)
-            print(f"平均値が高い上位5クラス: {top5_indices.tolist()}")
-            print(f"上位5クラスの平均値: {top5_means.tolist()}")
+        #     # クラスごとの平均値を確認
+        #     class_means = torch.mean(final_logits, dim=(0, 1))
+        #     top5_means, top5_indices = torch.topk(class_means, 5)
+        #     print(f"平均値が高い上位5クラス: {top5_indices.tolist()}")
+        #     print(f"上位5クラスの平均値: {top5_means.tolist()}")
 
-            # 標準偏差が小さすぎる場合は警告
-            if std_logit < 0.1:
-                print(
-                    "警告: ロジットの標準偏差が非常に小さいです。モデルが学習できていない可能性があります。"
-                )
+        #     # 標準偏差が小さすぎる場合は警告
+        #     if std_logit < 0.1:
+        #         print(
+        #             "警告: ロジットの標準偏差が非常に小さいです。モデルが学習できていない可能性があります。"
+        #         )
 
-        # 出力が偏りすぎないように動的な温度パラメータでスケーリング
-        # 訓練モードでは学習可能な温度パラメータを使用
-        if mode == "train":
-            # 現在のエポックに基づいて温度を調整（早期のエポックでは高温に）
-            if current_epoch is not None and current_epoch < 5:
-                # 早期のエポックでは分布をより均一にして、多様な学習を促進
-                temp = torch.clamp(self.temperature * 1.5, min=1.0, max=2.0)
-            else:
-                temp = self.temperature
-            scaled_logits = final_logits / temp
-        else:
-            # 評価・テストモードでは固定の温度で、複数クラスの検出を促進
-            temp = 1.5  # >1.0で分布がより均一に、<1.0で最大値がより強調される
-            scaled_logits = final_logits / temp
-            print(f"温度パラメータ {temp} でロジットをスケーリングしました")
+        # # 出力が偏りすぎないように動的な温度パラメータでスケーリング
+        # # 訓練モードでは学習可能な温度パラメータを使用
+        # if mode == "train":
+        #     # 現在のエポックに基づいて温度を調整（早期のエポックでは高温に）
+        #     if current_epoch is not None and current_epoch < 5:
+        #         # 早期のエポックでは分布をより均一にして、多様な学習を促進
+        #         temp = torch.clamp(self.temperature * 1.5, min=1.0, max=2.0)
+        #     else:
+        #         temp = self.temperature
+        #     scaled_logits = final_logits / temp
+        # else:
+        #     # 評価・テストモードでは固定の温度で、複数クラスの検出を促進
+        #     temp = 1.5  # >1.0で分布がより均一に、<1.0で最大値がより強調される
+        #     scaled_logits = final_logits / temp
+        #     print(f"温度パラメータ {temp} でロジットをスケーリングしました")
 
-        # ログソフトマックスを適用
-        log_probs = self.log_softmax(scaled_logits)  # (batch, T', num_classes)
+        # # ログソフトマックスを適用
+        # log_probs = self.log_softmax(scaled_logits)  # (batch, T', num_classes)
 
-        # CTC損失の入力形式に変換: (T', batch, C)
-        log_probs = log_probs.permute(1, 0, 2)  # (T', batch, num_classes)
+        # # CTC損失の入力形式に変換: (T', batch, C)
+        # log_probs = log_probs.permute(1, 0, 2)  # (T', batch, num_classes)
 
-        if mode == "train":
-            # CTC損失を計算
-            print(tgt_feature, "tgt_feature")
-            loss = self.ctc_loss(
-                log_probs,  # (T', batch, C)
-                tgt_feature,  # (batch, max_target_length)
-                input_lengths,  # (batch,)
-                target_lengths,  # (batch,)
-            )
-            return loss, log_probs
-        elif mode == "eval":
-            loss = self.ctc_loss(
-                log_probs,  # (T', batch, C)
-                tgt_feature,  # (batch, max_target_length)
-                input_lengths,  # (batch,)
-                target_lengths,  # (batch,)
-            )
-            # エポック情報をbeam_searchに渡す
-            decoded_sequences = beam_search.beam_search_decode(
-                log_probs,
-                beam_width=10,
-                blank_id=self.blank_id,
-                current_epoch=current_epoch,
-            )
-            return loss, decoded_sequences
-        elif mode == "test":
-            # エポック情報をbeam_searchに渡す
-            decoded_sequences = beam_search.beam_search_decode(
-                log_probs,
-                beam_width=10,
-                blank_id=self.blank_id,
-                current_epoch=current_epoch,
-            )
-            return decoded_sequences
+        # if mode == "train":
+        #     # CTC損失を計算
+        #     print(tgt_feature, "tgt_feature")
+        #     loss = self.ctc_loss(
+        #         log_probs,  # (T', batch, C)
+        #         tgt_feature,  # (batch, max_target_length)
+        #         input_lengths,  # (batch,)
+        #         target_lengths,  # (batch,)
+        #     )
+        #     return loss, log_probs
+        # elif mode == "eval":
+        #     loss = self.ctc_loss(
+        #         log_probs,  # (T', batch, C)
+        #         tgt_feature,  # (batch, max_target_length)
+        #         input_lengths,  # (batch,)
+        #         target_lengths,  # (batch,)
+        #     )
+        #     # エポック情報をbeam_searchに渡す
+        #     decoded_sequences = beam_search.beam_search_decode(
+        #         log_probs,
+        #         beam_width=10,
+        #         blank_id=self.blank_id,
+        #         current_epoch=current_epoch,
+        #     )
+        #     return loss, decoded_sequences
+        # elif mode == "test":
+        #     # エポック情報をbeam_searchに渡す
+        #     decoded_sequences = beam_search.beam_search_decode(
+        #         log_probs,
+        #         beam_width=10,
+        #         blank_id=self.blank_id,
+        #         current_epoch=current_epoch,
+        #     )
+        #     return decoded_sequences
+
+
+class NormLinear(nn.Module):
+    def __init__(self, in_dim, out_dim):
+        super(NormLinear, self).__init__()
+        self.weight = nn.Parameter(torch.Tensor(in_dim, out_dim))
+        nn.init.xavier_uniform_(self.weight, gain=nn.init.calculate_gain("relu"))
+
+    def forward(self, x):
+        outputs = torch.matmul(x, F.normalize(self.weight, dim=0))
+        return outputs
 
 
 # # ダミーデータの生成

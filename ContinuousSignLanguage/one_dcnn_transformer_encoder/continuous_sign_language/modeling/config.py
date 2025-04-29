@@ -1,7 +1,7 @@
 activation="relu"
 
 #detail 1DCNN
-cnn_out_channels = 512
+cnn_out_channels = 192
 kernel_size =30
 stride = 1
 padding = kernel_size//2

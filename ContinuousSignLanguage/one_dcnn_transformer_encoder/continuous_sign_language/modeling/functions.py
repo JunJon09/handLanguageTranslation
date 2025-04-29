@@ -84,9 +84,7 @@ def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
         num_workers=num_workers,
         shuffle=False,
     )
-    in_channels = (len(use_landmarks) + config.spatial_spatial_feature) * len(
-        config.use_features
-    )
+    in_channels = len(use_landmarks) * len(config.use_features)
 
     return train_dataloader, val_dataloader, test_dataloader, in_channels
 
@@ -109,16 +107,21 @@ def train_loop(
     tokens_causal_mask = None
     for batch_idx, batch_sample in enumerate(dataloader):
         feature = batch_sample["feature"]
-        feature_pad_mask = batch_sample["feature_pad_mask"]
+        spatial_feature = batch_sample["spatial_feature"]
         tokens = batch_sample["token"]
+        feature_pad_mask = batch_sample["feature_pad_mask"]
+        spatial_feature_pad_mask = batch_sample["spatial_feature_pad_mask"]
         tokens_pad_mask = batch_sample["token_pad_mask"]
+
         # check_tokens_format(tokens, tokens_pad_mask, start_id, end_id)
 
         feature = feature.to(device)
-        feature_pad_mask = feature_pad_mask.to(device)
+        spatial_feature = spatial_feature.to(device)
         tokens = tokens.to(device)
+        feature_pad_mask = feature_pad_mask.to(device)
+        spatial_feature_pad_mask = spatial_feature_pad_mask.to(device)
         tokens_pad_mask = tokens_pad_mask.to(device)
-
+        
         frames = feature.shape[-2]
 
         # Predict.
@@ -136,6 +139,7 @@ def train_loop(
         pred_start = time.perf_counter()
         loss, log_probs = model.forward(
             src_feature=feature,
+            spatial_feature=spatial_feature,
             tgt_feature=tokens,
             src_causal_mask=None,
             src_padding_mask=feature_pad_mask,
@@ -206,14 +210,17 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
     with torch.no_grad():
         for batch_idx, batch_sample in enumerate(dataloader):
             feature = batch_sample["feature"]
-            feature_pad_mask = batch_sample["feature_pad_mask"]
-            tokens = batch_sample["token"]
-            tokens_pad_mask = batch_sample["token_pad_mask"]
             spatial_feature = batch_sample["spatial_feature"]
-            print("spatial_feature", spatial_feature.shape, feature.shape)
+            tokens = batch_sample["token"]
+            feature_pad_mask = batch_sample["feature_pad_mask"]
+            spatial_feature_pad_mask = batch_sample["spatial_feature_pad_mask"]
+            tokens_pad_mask = batch_sample["token_pad_mask"]
+
             feature = feature.to(device)
-            feature_pad_mask = feature_pad_mask.to(device)
+            spatial_feature = spatial_feature.to(device)
             tokens = tokens.to(device)
+            feature_pad_mask = feature_pad_mask.to(device)
+            spatial_feature_pad_mask = spatial_feature_pad_mask.to(device)
             tokens_pad_mask = tokens_pad_mask.to(device)
 
             frames = feature.shape[-2]
@@ -228,10 +235,11 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
             pred_start = time.perf_counter()
             val_loss, log_probs = model.forward(
                 src_feature=feature,
+                spatial_feature=spatial_feature,
                 tgt_feature=tokens,
                 src_causal_mask=None,
                 src_padding_mask=feature_pad_mask,
-                input_lengths=input_lengths,  # 後修正
+                input_lengths=input_lengths,  #
                 target_lengths=target_lengths,  # 修正
                 mode="eval",
                 current_epoch=current_epoch,  # エポック情報の追加
@@ -271,16 +279,20 @@ def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
     with torch.no_grad():
         for batch_idx, batch_sample in enumerate(dataloader):
             feature = batch_sample["feature"]
-            feature_pad_mask = batch_sample["feature_pad_mask"]
+            spatial_feature = batch_sample["spatial_feature"]
             tokens = batch_sample["token"]
+            feature_pad_mask = batch_sample["feature_pad_mask"]
+            spatial_feature_pad_mask = batch_sample["spatial_feature_pad_mask"]
             tokens_pad_mask = batch_sample["token_pad_mask"]
 
             feature = feature.to(device)
+            spatial_feature = spatial_feature.to(device)
             tokens = tokens.to(device)
             tokens_pad_mask = tokens_pad_mask.to(device)
             feature_pad_mask = (
                 feature_pad_mask.to(device) if feature_pad_mask is not None else None
             )
+            spatial_feature_pad_mask = spatial_feature_pad_mask.to(device)
 
             frames = feature.shape[-2]
 
@@ -318,6 +330,7 @@ def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
             pred_start = time.perf_counter()
             log_probs = model.forward(
                 src_feature=feature,
+                spatial_feature=spatial_feature,
                 tgt_feature=tokens,
                 src_causal_mask=None,
                 src_padding_mask=feature_pad_mask,
