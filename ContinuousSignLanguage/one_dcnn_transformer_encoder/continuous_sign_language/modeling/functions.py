@@ -251,10 +251,10 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
             # Preds do not include <start>, so skip that of tokens.
 
             tokens = tokens.tolist()
-            reference_text = [" ".join(map(str, seq)) for seq in tokens]
-            hypothesis_text = [" ".join(map(str, seq)) for seq in log_probs]
-            wer_score = wer(reference_text, hypothesis_text)
-            print(f"Batch {batch_idx}: WER: {wer_score:.10f}")
+            # reference_text = [" ".join(map(str, seq)) for seq in tokens]
+            # hypothesis_text = [" ".join(map(str, seq)) for seq in log_probs]
+            # wer_score = wer(reference_text, hypothesis_text)
+            # print(f"Batch {batch_idx}: WER: {wer_score:.10f}")
     print(f"Done. Time:{time.perf_counter()-start}")
     # Average loss.
     val_loss /= num_batches

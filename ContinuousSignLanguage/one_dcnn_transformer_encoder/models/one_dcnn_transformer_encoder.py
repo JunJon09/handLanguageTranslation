@@ -6,6 +6,7 @@ import one_dcnn_transformer_encoder.models.beam_search as beam_search
 import one_dcnn_transformer_encoder.models.BiLSTM as BiLSTM
 import torch.nn.functional as F
 import one_dcnn_transformer_encoder.models.decode as decode
+import one_dcnn_transformer_encoder.models.criterions as criterions
 
 
 class OnedCNNTransformerEncoderModel(nn.Module):
@@ -56,6 +57,15 @@ class OnedCNNTransformerEncoderModel(nn.Module):
             num_classes=num_classes,
             blank_idx=blank_idx,
         ).to("cpu")
+
+        self.loss = dict()
+        self.criterion_init()
+        self.loss_weights = {
+            'ConvCTC': 1.0,  # ConvCTCの損失に対する重み
+            'SeqCTC': 0.5,   # SeqCTCの損失に対する重み
+            'Dist': 0.1      # 知識蒸留（Distillation）損失に対する重み
+        }
+
 
         # self.cnn_model = cnn.create_simple_cnn2layer(in_channels=in_channels/2,mid_channels=cnn_out_channels, out_channels=cnn_out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dropout_rate=dropout_rate, bias=bias)
 
@@ -276,7 +286,15 @@ class OnedCNNTransformerEncoderModel(nn.Module):
         conv_pred = self.decoder.decode(cnn_logit, updated_lgt, batch_first=False, probs=False)
         print(pred, "pred")
         print(conv_pred, "conv_pred")
-        return pred, conv_pred  
+        ret_dict = {
+            "feat_len": updated_lgt,
+            "conv_logits": cnn_logit,
+            "sequence_logits": outputs,
+            "conv_sents": conv_pred,
+            "recognized_sents": pred,
+        }
+        loss = self.criterion_calculation(ret_dict, tgt_feature, target_lengths)
+        return loss, outputs 
         # 各時間フレームでの予測を改善し、複数クラスの検出を促進
         # logits: (batch, T', num_classes)
         # attended_logits, _ = self.class_attention(logits, logits, logits)
@@ -365,6 +383,28 @@ class OnedCNNTransformerEncoderModel(nn.Module):
         #     )
         #     return decoded_sequences
 
+    def criterion_calculation(self, ret_dict, label, label_lgt):
+        loss = 0
+        for k, weight in self.loss_weights.items():
+            if k == 'ConvCTC':
+                loss += weight * self.loss['CTCLoss'](ret_dict["conv_logits"].log_softmax(-1),
+                                                      label.cpu().int(), ret_dict["feat_len"].cpu().int(),
+                                                      label_lgt.cpu().int()).mean()
+            elif k == 'SeqCTC':
+                loss += weight * self.loss['CTCLoss'](ret_dict["sequence_logits"].log_softmax(-1),
+                                                      label.cpu().int(), ret_dict["feat_len"].cpu().int(),
+                                                      label_lgt.cpu().int()).mean()
+            # elif k == 'Dist':
+            #     loss += weight * self.loss['distillation'](ret_dict["conv_logits"],
+            #                                                ret_dict["sequence_logits"].detach(),
+            #                                                use_blank=False)
+        return loss
+
+    def criterion_init(self):
+        self.loss['CTCLoss'] = torch.nn.CTCLoss(reduction='none', zero_infinity=False)
+        self.loss['distillation'] = criterions.SeqKD(T=8)
+        return self.loss
+
 
 class NormLinear(nn.Module):
     def __init__(self, in_dim, out_dim):
@@ -375,6 +415,7 @@ class NormLinear(nn.Module):
     def forward(self, x):
         outputs = torch.matmul(x, F.normalize(self.weight, dim=0))
         return outputs
+    
 
 
 # # ダミーデータの生成
