@@ -39,32 +39,23 @@ class OnedCNNTransformerEncoderModel(nn.Module):
 
         # 1DCNNモデル
         # self.cnn_model = cnn.resnet18_1d(num_classes=num_classes, in_channels=in_channels, out_channels=cnn_out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dropout_rate=dropout_rate, bias=bias)
-        # self.cnn_model = cnn.create_simple_cnn1layer(
-        #     in_channels=in_channels,
-        #     out_channels=cnn_out_channels,
-        #     kernel_size=kernel_size,
-        #     stride=stride,
-        #     padding=padding,
-        #     dropout_rate=dropout_rate,
-        #     bias=bias,
-        # )
-        self.cnn_model = cnn.DualCNNWithCTC(
-            skeleton_input_size=in_channels,
-            hand_feature_size=50,
-            skeleton_hidden_size=128,
-            hand_hidden_size=128,
-            fusion_hidden_size=192,
-            num_classes=num_classes,
-            blank_idx=blank_idx,
-        ).to("cpu")
+        self.cnn_model = cnn.create_simple_cnn1layer(
+            in_channels=in_channels,
+            out_channels=cnn_out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dropout_rate=dropout_rate,
+            bias=bias,
+        )
 
         self.loss = dict()
         self.criterion_init()
-        self.loss_weights = {
-            'ConvCTC': 1.0,  # ConvCTCの損失に対する重み
-            'SeqCTC': 0.5,   # SeqCTCの損失に対する重み
-            'Dist': 0.1      # 知識蒸留（Distillation）損失に対する重み
-        }
+        # self.loss_weights = {
+        #     'ConvCTC': 1.0,  # ConvCTCの損失に対する重み
+        #     'SeqCTC': 0.5,   # SeqCTCの損失に対する重み
+        #     'Dist': 0.1      # 知識蒸留（Distillation）損失に対する重み
+        # }
 
 
         # self.cnn_model = cnn.create_simple_cnn2layer(in_channels=in_channels/2,mid_channels=cnn_out_channels, out_channels=cnn_out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dropout_rate=dropout_rate, bias=bias)

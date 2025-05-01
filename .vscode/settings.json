@@ -35,6 +35,7 @@
         "unsqueeze",
         "gislr",
         "kalman",
-        "OneD"
+        "OneD",
+        "LSTM"
     ]
 }

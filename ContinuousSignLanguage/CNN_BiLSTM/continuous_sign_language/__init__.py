@@ -1,0 +1,1 @@
+from CNN_BiLSTM.continuous_sign_language import config
