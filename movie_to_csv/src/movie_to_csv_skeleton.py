@@ -5,6 +5,7 @@ import random
 import config
 import csv
 import minimum_continuous_hand_language_relation as minimum_relation
+import middle_dataset_relation as middle_relation
 
 
 def get_movie_files():
@@ -64,24 +65,26 @@ def write_index_csv(path, person_number, file_name, sign):
        
         if not file_exists:
             write.writeheader()
+        
+        value = [str(middle_relation.middle_dataset_relation_dict[key]) for key in sign]
+        text_sign = ",".join(value)
 
         #I:1, Like:2, Dislike:3, banna:4, apple:5
-
-        if sign == ['I', 'apple', 'dislike']:
-            sign = '1,5,3'
-        elif sign == ['I', 'apple', 'like']:
-            sign = '1,5,2'
-        elif sign == ['I', 'banana', 'dislike']:
-            sign = '1,4,3'
-        elif sign == ['I', 'banana', 'like']:   
-            sign = '1,4,2'
+        # if sign == ['I', 'apple', 'dislike']:
+        #     sign = '1,5,3'
+        # elif sign == ['I', 'apple', 'like']:
+        #     sign = '1,5,2'
+        # elif sign == ['I', 'banana', 'dislike']:
+        #     sign = '1,4,3'
+        # elif sign == ['I', 'banana', 'like']:   
+        #     sign = '1,4,2'
         # # if person_number == "005":
         # #     sign = '12,2'
         # else:
         #     sign = str(int(sign[0]))
         # value = [minimum_relation.minimum_continuous_hand_language_relation[key] for key in sign]
         # text_sign = ",".join(value)
-        write.writerow({"path": path, "person_number": person_number, "file_name": file_name, "sign": sign})
+        write.writerow({"path": path, "person_number": person_number, "file_name": file_name, "sign": text_sign})
 
 def restore_nhk(file, i, j):
     file_split = file.split("/")
@@ -149,6 +152,28 @@ def restore_test_data(file, i, j):
     print( output_csv_path, person_number, csv_path, file_name, folder_name)
     return output_csv_path, person_number, csv_path, file_name, folder_name
 
+def restore_middle_data(file, i, j):
+    train_list = ["i_school_go", "you_water_drink_question", "he_tomorrow_come", "i_food_like", "teacher_today_busy", "friend_with_station_meet", "money_use_pp", "hospital_where_question", "i_banana_like", "i_apple_dislike"]
+    val_list = ["you_school_go_question", "he_food_like", "teacher_money_use_pp", "he_today_come", "i_banana_dislike"]
+    test_list = ["i_tomorrow_hospital_go", "teacher_water_drink_today", "i_today_busy", "he_school_go_pp", "i_apple_like"]
+
+
+    file_split = file.split("/")
+    folder_name = file_split[4] #i_apple_like
+    file_name = str((i+1) * 1000 + j)
+    csv_path = "csv/middle_dataset/" + folder_name + "/" + file_name + ".csv"
+    output_csv_path = "../../" + csv_path
+    if folder_name in train_list:
+        person_number = "001"
+    elif folder_name in val_list:
+        person_number = "002"
+    elif folder_name in test_list:
+        person_number = "003"
+    else:
+        raise ValueError(f"Unknown folder name: {folder_name}")
+    print(person_number)
+    return output_csv_path, person_number, csv_path, file_name, folder_name
+
 
 if __name__ == "__main__":
     movie_files_list = get_movie_files()
@@ -175,7 +200,10 @@ if __name__ == "__main__":
             #output_csv_path, person_number, csv_path, file_name, folder_name = restore_one_word(file, i, j)
 
             #test_data
-            output_csv_path, person_number, csv_path, file_name, folder_name = restore_test_data(file, i, j)
+            # output_csv_path, person_number, csv_path, file_name, folder_name = restore_test_data(file, i, j)
+            
+            #middle_data
+            output_csv_path, person_number, csv_path, file_name, folder_name = restore_middle_data(file, i, j)
             
             write_csv(landmarks_list, output_csv_path, person_number)
             write_index_csv(path=csv_path, person_number=person_number, file_name=file_name, sign=folder_name.split("_"))

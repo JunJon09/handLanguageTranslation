@@ -220,15 +220,18 @@ class CNNBiLSTMModel(nn.Module):
         conv_pred = self.decoder.decode(cnn_logit, updated_lgt, batch_first=False, probs=False)
         print(pred, "pred")
         print(conv_pred, "conv_pred")
-        ret_dict = {
-            "feat_len": updated_lgt,
-            "conv_logits": cnn_logit,
-            "sequence_logits": outputs,
-            "conv_sents": conv_pred,
-            "recognized_sents": pred,
-        }
-        loss = self.criterion_calculation(ret_dict, tgt_feature, target_lengths)
-        return loss, outputs 
+        if mode != "test":
+            ret_dict = {
+                "feat_len": updated_lgt,
+                "conv_logits": cnn_logit,
+                "sequence_logits": outputs,
+                "conv_sents": conv_pred,
+                "recognized_sents": pred,
+            }
+            loss = self.criterion_calculation(ret_dict, tgt_feature, target_lengths)
+            return loss, outputs 
+        else:
+            return pred, conv_pred
 
     def criterion_calculation(self, ret_dict, label, label_lgt):
         loss = 0

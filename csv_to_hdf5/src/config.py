@@ -1,5 +1,5 @@
-index_file_path = "../../csv/test_data/index.csv"
-out_dir = "../../hdf5/test_data/"
+index_file_path = "../../csv/middle_dataset/index.csv"
+out_dir = "../../hdf5/middle_dataset/"
 import pandas as pd
 
 # # CSVファイルの読み込み

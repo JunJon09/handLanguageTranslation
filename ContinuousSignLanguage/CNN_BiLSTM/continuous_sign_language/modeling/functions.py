@@ -267,6 +267,7 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
 def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
     size = len(dataloader.dataset)
     hypothesis_text_list = []
+    hypothesis_text_conv_list = []
     reference_text_list = []
 
     # Collect prediction time.
@@ -328,7 +329,7 @@ def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
 
             # Predict.
             pred_start = time.perf_counter()
-            log_probs = model.forward(
+            pred, conv_pred = model.forward(
                 src_feature=feature,
                 spatial_feature=spatial_feature,
                 tgt_feature=tokens,
@@ -345,12 +346,20 @@ def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
 
             tokens = tokens.tolist()
             reference_text = [" ".join(map(str, seq)) for seq in tokens]
-            hypothesis_text = [" ".join(map(str, seq)) for seq in log_probs]
+
+            pred_words = [[word for word, idx in sample] for sample in pred]
+            hypothesis_text = [" ".join(map(str, seq)) for seq in pred_words]
+
+            conv_pred_words = [[word for word, idx in sample] for sample in conv_pred]
+            hypothesis_text_conv =[" ".join(map(str, seq)) for seq in conv_pred_words]
+            print(hypothesis_text, "hypothesis_text_conv_list[0]")
+            print(reference_text[0], "reference_text_list[0]")
 
             reference_text_list.append(reference_text[0])
             hypothesis_text_list.append(hypothesis_text[0])
+            hypothesis_text_conv_list.append(hypothesis_text_conv[0])
 
-    print(reference_text_list, hypothesis_text_list)
+    print(reference_text_list, hypothesis_text_list, hypothesis_text_conv_list, "mfkepfk")
 
     print(f"Done. Time:{time.perf_counter()-start}")
 

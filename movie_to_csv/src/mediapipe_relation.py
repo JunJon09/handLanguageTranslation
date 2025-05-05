@@ -26,11 +26,11 @@ class MediaPipeClass:
 
         fps = cap.get(cv2.CAP_PROP_FPS)
 
-        with mp_face_mesh.FaceMesh(static_image_mode=True,
+        with mp_face_mesh.FaceMesh(static_image_mode=False,
                         max_num_faces=10,
                         refine_landmarks=True,
-                        min_detection_confidence=0.1,  # 0.5から0.3に下げる
-                        min_tracking_confidence=0.1) as face_mesh, \
+                        min_detection_confidence=0.05,  # 0.5から0.3に下げる
+                        min_tracking_confidence=0.05) as face_mesh, \
             mp_pose.Pose(static_image_mode=False,
                         model_complexity=0,  # 1から0に変更してパフォーマンスを改善
                         enable_segmentation=False,

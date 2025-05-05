@@ -49,7 +49,6 @@ def landmarks_csv_to_hdf5(track_info:list , output_dir: str, dictionary: dict, c
                 path = info[0]
                 pid = info[1]
                 sid = info[2]
-
                 #lsa64
                 # sign = lsa64_relation.lsa64_nan_to_none(info[3])
                 # token = np.array([dictionary[sign]])
@@ -57,7 +56,7 @@ def landmarks_csv_to_hdf5(track_info:list , output_dir: str, dictionary: dict, c
                 #minimum_continuous_hand_language & test_data
                 sign = [data for data in info[3].split(",")]
                 token = np.array(sign, dtype=int)
-
+                
                 #one_word
                 # if upid == 5:
                 #     sign = [data for data in info[3].split(",")]
@@ -69,10 +68,10 @@ def landmarks_csv_to_hdf5(track_info:list , output_dir: str, dictionary: dict, c
                
                 
                 assert pid == upid, f"{pid}:{upid}"
-                track_path = "../.." + path
+                track_path = "../../" + path
                
-                if not os.path.exists(track_path):
-                    continue
+                # if not os.path.exists(track_path):
+                #     continue
 
                 track = load_relevant_data_subset(track_path)
                 # `[T, J, C] -> [C, T, J]`
