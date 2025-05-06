@@ -243,6 +243,8 @@ def merge_padded_batch(
         f"spatial_feature: {merged_spatial_feature.shape}, "
         f"feature: {batch[0]['feature'].shape}"
     )
+    feature_lengths = torch.sum(feature_pad_mask, dim=1)
+
 
     token_pad_mask = torch.logical_not(merged_token == token_padding_val)
     retval = {
@@ -252,5 +254,6 @@ def merge_padded_batch(
         "feature_pad_mask": feature_pad_mask,
         "spatial_feature_pad_mask": spatial_feature_pad_mask,
         "token_pad_mask": token_pad_mask,
+        "feature_lengths": feature_lengths,
     }
     return retval

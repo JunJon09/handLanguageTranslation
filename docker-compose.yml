@@ -1,4 +1,3 @@
-version: "3"
 services:
   python_app:
     build: ./docker

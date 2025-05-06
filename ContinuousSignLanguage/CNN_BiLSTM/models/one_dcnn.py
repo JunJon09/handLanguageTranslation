@@ -724,7 +724,7 @@ class TemporalConv(nn.Module):
         elif self.conv_type == 6:
             self.kernel_size = ["P2", "K5", "K5"]
         elif self.conv_type == 7:
-            self.kernel_size = ["P2", "K5", "P2", "K5"]
+            self.kernel_size = ["P2", "K7", "P2", "K7"]
         elif self.conv_type == 8:
             self.kernel_size = ["P2", "P2", "K5", "K5"]
 
@@ -867,7 +867,7 @@ class DualFeatureTemporalConv(nn.Module):
         elif self.conv_type == 6:
             kernel_size = ["P2", "K5", "K5"]
         elif self.conv_type == 7:
-            kernel_size = ["P2", "K5", "P2", "K5"]
+            kernel_size = ["P2", "K7", "P2", "K7"]
         elif self.conv_type == 8:
             kernel_size = ["P2", "P2", "K5", "K5"]
 
@@ -923,7 +923,7 @@ class DualFeatureTemporalConv(nn.Module):
                 or self.conv_type == 6
                 and ["P2", "K5", "K5"]
                 or self.conv_type == 7
-                and ["P2", "K5", "P2", "K5"]
+                and ["P2", "K7", "P2", "K7"]
                 or ["P2", "P2", "K5", "K5"]
             )
         ):

@@ -112,7 +112,7 @@ def train_loop(
         feature_pad_mask = batch_sample["feature_pad_mask"]
         spatial_feature_pad_mask = batch_sample["spatial_feature_pad_mask"]
         tokens_pad_mask = batch_sample["token_pad_mask"]
-
+        feature_lengths = batch_sample["feature_lengths"]
         # check_tokens_format(tokens, tokens_pad_mask, start_id, end_id)
 
         feature = feature.to(device)
@@ -121,21 +121,11 @@ def train_loop(
         feature_pad_mask = feature_pad_mask.to(device)
         spatial_feature_pad_mask = spatial_feature_pad_mask.to(device)
         tokens_pad_mask = tokens_pad_mask.to(device)
-        
         frames = feature.shape[-2]
 
         # Predict.
-        input_lengths = [
-            (
-                len(feature[i][0]) / 2
-                if len(feature[i][0]) % 2 == 0
-                else len(feature[i][0]) // 2 - 1
-            )
-            for i in range(len(feature))
-        ]
-        input_lengths = torch.tensor(input_lengths, dtype=torch.long)
-        target_lengths = [len(tokens[i]) for i in range(len(tokens))]
-        target_lengths = torch.tensor(target_lengths, dtype=torch.long)
+        input_lengths = feature_lengths
+        target_lengths = target_lengths = torch.sum(tokens_pad_mask, dim=1)
         pred_start = time.perf_counter()
         loss, log_probs = model.forward(
             src_feature=feature,
@@ -143,8 +133,8 @@ def train_loop(
             tgt_feature=tokens,
             src_causal_mask=None,
             src_padding_mask=feature_pad_mask,
-            input_lengths=input_lengths,  # 後修正
-            target_lengths=target_lengths,  # 修正
+            input_lengths=input_lengths,
+            target_lengths=target_lengths,
             mode="train",
         )
         print("loss", loss)
@@ -215,6 +205,7 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
             feature_pad_mask = batch_sample["feature_pad_mask"]
             spatial_feature_pad_mask = batch_sample["spatial_feature_pad_mask"]
             tokens_pad_mask = batch_sample["token_pad_mask"]
+            feature_lengths = batch_sample["feature_lengths"]
 
             feature = feature.to(device)
             spatial_feature = spatial_feature.to(device)
@@ -226,12 +217,8 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
             frames = feature.shape[-2]
 
             # Predict.
-            input_lengths = torch.tensor(
-                [feature[i].shape[-1] - 20 for i in range(len(feature))],
-                dtype=torch.long,
-            )
-            target_lengths = [len(tokens[i]) for i in range(len(tokens))]
-            target_lengths = torch.tensor(target_lengths, dtype=torch.long)
+            input_lengths = feature_lengths
+            target_lengths = target_lengths = torch.sum(tokens_pad_mask, dim=1)
             pred_start = time.perf_counter()
             val_loss, log_probs = model.forward(
                 src_feature=feature,
@@ -239,8 +226,8 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
                 tgt_feature=tokens,
                 src_causal_mask=None,
                 src_padding_mask=feature_pad_mask,
-                input_lengths=input_lengths,  #
-                target_lengths=target_lengths,  # 修正
+                input_lengths=input_lengths,
+                target_lengths=target_lengths,
                 mode="eval",
                 current_epoch=current_epoch,  # エポック情報の追加
             )
@@ -285,6 +272,7 @@ def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
             feature_pad_mask = batch_sample["feature_pad_mask"]
             spatial_feature_pad_mask = batch_sample["spatial_feature_pad_mask"]
             tokens_pad_mask = batch_sample["token_pad_mask"]
+            feature_lengths = batch_sample["feature_lengths"]
 
             feature = feature.to(device)
             spatial_feature = spatial_feature.to(device)
@@ -315,17 +303,10 @@ def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
             stride = model_config.stride
             padding = model_config.padding
 
-            input_lengths = torch.tensor(
-                [(T + 2 * padding - kernel_size) // stride + 1 for _ in range(N)],
-                device=device,
-            )
+            input_lengths = feature_lengths
 
             # ターゲット長の計算（実際のトークン長を使用）
             target_lengths = torch.sum(tokens_pad_mask, dim=1)
-
-            print(
-                f"シーケンス情報 - 入力長: {T}, CNN後の推定長: {input_lengths[0].item()}, ターゲット長: {target_lengths[0].item()}"
-            )
 
             # Predict.
             pred_start = time.perf_counter()

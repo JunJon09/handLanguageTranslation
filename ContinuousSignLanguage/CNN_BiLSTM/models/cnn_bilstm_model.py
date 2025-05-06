@@ -69,7 +69,7 @@ class CNNBiLSTMModel(nn.Module):
         # self._initialize_weights()
 
         # ログソフトマックス（CTC損失用）
-        gloss_dict = {'<blank>': [0], 'I': [1], 'Like': [2], 'Dislike': [3], 'banna': [4], 'apple': [5], '<pad>': [6]}
+        gloss_dict = {'<blank>': [0], 'i': [1], 'you': [2], 'he': [3], 'teacher': [4], 'friend': [5], 'today': [6], 'tomorrow': [7], 'school': [8], 'hospital': [9], 'station': [10], 'go': [11], 'come': [12], 'drink': [13], 'like': [14], 'dislike': [15], 'busy': [16], 'use': [17], 'meet': [18], 'where': [19], 'question': [20], 'pp': [21], 'with': [22], 'water': [23], 'food': [24], 'money': [25], 'apple': [26], 'banana': [27], '<pad>': [28]}
         self.decoder = decode.Decode(gloss_dict=gloss_dict, num_classes=num_classes, search_mode="max", blank_id=blank_idx)
 
     def _initialize_weights(self):
@@ -153,29 +153,26 @@ class CNNBiLSTMModel(nn.Module):
         # 入力データにNaN値があるかチェック
         if torch.isnan(src_feature).any():
             print("警告: 入力src_featureにNaN値が検出されました")
-
+            exit(1)
         # 無限大の値があるかチェック
         if torch.isinf(src_feature).any():
             print("警告: 入力src_featureに無限大の値が検出されました")
         # 数値安定性のための正規化を追加
         # src_feature形状は[batch, C*J, T]なので、dim=2ではなくdim=1に沿って正規化
-        eps = 1e-5
-        src_mean = src_feature.mean(dim=1, keepdim=True)
-        src_std = src_feature.std(dim=1, keepdim=True) + eps
-        src_feature = (src_feature - src_mean) / src_std
+        # eps = 1e-5
+        # src_mean = src_feature.mean(dim=1, keepdim=True)
+        # src_std = src_feature.std(dim=1, keepdim=True) + eps
+        # src_feature = (src_feature - src_mean) / src_std
 
-        # 大きすぎる値や小さすぎる値をクリップ
-        src_feature = torch.clamp(src_feature, min=-5.0, max=5.0)
-        print(src_feature.shape, "src_feature.shape")
+        # # 大きすぎる値や小さすぎる値をクリップ
+        # src_feature = torch.clamp(src_feature, min=-5.0, max=5.0)
+        # print(src_feature.shape, "src_feature.shape")
         # cnn_out = self.cnn_model(src_feature)  # return [batch, 512, T']
         cnn_out, cnn_logit, updated_lgt = self.cnn_model(
             skeleton_feat=src_feature, hand_feat=spatial_feature, lgt=input_lengths
         )
+        print(cnn_out.shape, "cnn_out.shape", src_feature.shape, "src_feature.shape", input_lengths[0].shape, "input_lengths.shape", input_lengths[1].shape)
 
-        print(cnn_out.shape, "cnn_out.shape")  # [batch, T', 192]
-
-        # cnn_out = cnn_out.permute(0, 2, 1)  # (batch, T', 512)
-        # print(cnn_out.shape, "cnn_out.shape") #[batch, T', 192]
         if torch.isnan(cnn_out).any():
             print("層1の出力にNaN値が検出されました")
             # 問題のある入力値の確認
@@ -183,6 +180,7 @@ class CNNBiLSTMModel(nn.Module):
             print(
                 f"問題がある入力の要素: {cnn_out[problem_indices[0][0], problem_indices[1][0], problem_indices[2][0]]}"
             )
+            exit(1)
 
         # パディングマスクのサイズをCNN出力のシーケンス長に合わせる
         if src_padding_mask is not None:
@@ -210,7 +208,9 @@ class CNNBiLSTMModel(nn.Module):
 
 
         # # クラス分類
-        # logits = self.classifier(tr_out)  # (batch, T', num_classes)
+        print(f"updated_lgt: {updated_lgt}")
+        print(f"updated_lgtの形状: {updated_lgt.shape}")
+        print(f"updated_lgtの値: {updated_lgt.tolist()}")
         tm_outputs = self.temporal_model(cnn_out, updated_lgt)
         print(tm_outputs["predictions"].shape, "tm_outputs['predictions'].shape")
         outputs = self.classifier(tm_outputs["predictions"])  # (batch, T', num_classes)
