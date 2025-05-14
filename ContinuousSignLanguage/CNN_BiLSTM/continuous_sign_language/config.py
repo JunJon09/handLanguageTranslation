@@ -24,7 +24,7 @@ USE_RHAND = np.arange(478+33+21, 478+33+21+21)
 
 use_features = ["x", "y", "z"]
 load_into_ram = True
-batch_size = 32
+batch_size = 8
 spatial_spatial_feature = 25 * 2
 
 #plots

@@ -1,6 +1,7 @@
 import CNN_BiLSTM.continuous_sign_language.features as features
 import CNN_BiLSTM.continuous_sign_language.config as config
 import CNN_BiLSTM.continuous_sign_language.dataset as dataset
+import CNN_BiLSTM.continuous_sign_language.modeling.middle_dataset_relation as middle_dataset_relation
 from torchvision.transforms import Compose
 import os
 from functools import partial
@@ -319,7 +320,7 @@ def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
                 input_lengths=input_lengths,
                 target_lengths=target_lengths,
                 mode="test",
-                blank_id=blank_id,
+                blank_id=0,
             )
 
             pred_end = time.perf_counter()
@@ -328,20 +329,18 @@ def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
             tokens = tokens.tolist()
             reference_text = [" ".join(map(str, seq)) for seq in tokens]
 
-            pred_words = [[word for word, idx in sample] for sample in pred]
+            pred_words = [[middle_dataset_relation.middle_dataset_relation_dict[word] for word, idx in sample] for sample in pred]
             hypothesis_text = [" ".join(map(str, seq)) for seq in pred_words]
 
-            conv_pred_words = [[word for word, idx in sample] for sample in conv_pred]
-            hypothesis_text_conv =[" ".join(map(str, seq)) for seq in conv_pred_words]
-            print(hypothesis_text, "hypothesis_text_conv_list[0]")
-            print(reference_text[0], "reference_text_list[0]")
-
+            conv_pred_words = [[middle_dataset_relation.middle_dataset_relation_dict[word] for word, idx in sample] for sample in conv_pred]
+            hypothesis_text_conv =[" ".join(map(str,seq)) for seq in conv_pred_words]
+            
+            
             reference_text_list.append(reference_text[0])
             hypothesis_text_list.append(hypothesis_text[0])
-            hypothesis_text_conv_list.append(hypothesis_text_conv[0])
-
-    print(reference_text_list, hypothesis_text_list, hypothesis_text_conv_list, "mfkepfk")
-
+            hypothesis_text_conv_list.append(hypothesis_text_conv[0])   
+    print(reference_text_list)
+    print(hypothesis_text_list)
     print(f"Done. Time:{time.perf_counter()-start}")
 
     # Average WER.

@@ -27,7 +27,7 @@ def val_loss_plot(val_losses_default, eval_every_n_epochs):
     plt.plot(xs_val, val_losses_default, label="Default", marker=".")
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
-    plt.ylim([0.0, 20.0])
+    plt.ylim([0.0, 50.0])
     plt.xticks(np.arange(1, len(val_losses_default)+1, eval_every_n_epochs))
     plt.legend()
     save_path = os.path.join(config.plot_save_dir, config.plot_loss_val_save_path)
@@ -48,7 +48,7 @@ def train_val_loss_plot(train_losses_default, val_losses_default, eval_every_n_e
     
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
-    plt.ylim([0.0, 20.0])
+    plt.ylim([0.0, 50.0])
     plt.legend()
     save_path = os.path.join(config.plot_save_dir, config.plot_loss_train_val_save_path)
     plt.savefig(save_path, dpi=300, bbox_inches='tight')

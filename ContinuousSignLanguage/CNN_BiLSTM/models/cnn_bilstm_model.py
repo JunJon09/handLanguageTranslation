@@ -7,6 +7,7 @@ from torch import nn
 import torch
 import torch.nn.functional as F
 
+
 class CNNBiLSTMModel(nn.Module):
     def __init__(
         self,
@@ -28,12 +29,12 @@ class CNNBiLSTMModel(nn.Module):
         tren_norm_first=True,
         tren_add_bias=True,
         num_classes=100,
-        blank_idx=1,
+        blank_idx=0,
     ):
         super().__init__()
 
         # blank_idxをクラス変数として保存
-        self.blank_id = blank_idx
+        self.blank_id = 0
 
         # 1DCNNモデル
         self.cnn_model = cnn.DualCNNWithCTC(
@@ -48,10 +49,11 @@ class CNNBiLSTMModel(nn.Module):
 
         self.loss = dict()
         self.criterion_init()
+        # 損失の重みを調整 - BiLSTMの重みを増やす
         self.loss_weights = {
-            'ConvCTC': 1.0,  # ConvCTCの損失に対する重み
-            'SeqCTC': 0.5,   # SeqCTCの損失に対する重み
-            'Dist': 0.1      # 知識蒸留（Distillation）損失に対する重み
+            "ConvCTC": 0.7,  # CNNからの出力の重みを下げる
+            "SeqCTC": 1.0,  # BiLSTM後の出力の重みを上げる
+            "Dist": 0.1,  # 知識蒸留（Distillation）損失に対する重み
         }
 
         self.temporal_model = BiLSTM.BiLSTMLayer(
@@ -65,42 +67,69 @@ class CNNBiLSTMModel(nn.Module):
         # クラス分類用の線形層
         self.classifier = nn.Linear(192, num_classes)
 
-        # 重みの初期化を改善
-        # self._initialize_weights()
+        # 重みの初期化を行う - コメントアウトを解除
+        self._initialize_weights()
 
         # ログソフトマックス（CTC損失用）
-        gloss_dict = {'<blank>': [0], 'i': [1], 'you': [2], 'he': [3], 'teacher': [4], 'friend': [5], 'today': [6], 'tomorrow': [7], 'school': [8], 'hospital': [9], 'station': [10], 'go': [11], 'come': [12], 'drink': [13], 'like': [14], 'dislike': [15], 'busy': [16], 'use': [17], 'meet': [18], 'where': [19], 'question': [20], 'pp': [21], 'with': [22], 'water': [23], 'food': [24], 'money': [25], 'apple': [26], 'banana': [27], '<pad>': [28]}
-        self.decoder = decode.Decode(gloss_dict=gloss_dict, num_classes=num_classes, search_mode="max", blank_id=blank_idx)
+        gloss_dict = {
+            "<blank>": [0],
+            "i": [1],
+            "you": [2],
+            "he": [3],
+            "teacher": [4],
+            "friend": [5],
+            "today": [6],
+            "tomorrow": [7],
+            "school": [8],
+            "hospital": [9],
+            "station": [10],
+            "go": [11],
+            "come": [12],
+            "drink": [13],
+            "like": [14],
+            "dislike": [15],
+            "busy": [16],
+            "use": [17],
+            "meet": [18],
+            "where": [19],
+            "question": [20],
+            "pp": [21],
+            "with": [22],
+            "water": [23],
+            "food": [24],
+            "money": [25],
+            "apple": [26],
+            "banana": [27],
+            "<pad>": [28],
+        }
+        # 言語モデルを使用するgreedyデコーダーを使用
+        self.decoder = decode.Decode(
+            gloss_dict=gloss_dict,
+            num_classes=num_classes,
+            search_mode="greedy",  # 言語モデル統合型のグリーディサーチを使用
+            blank_id=0,
+        )
 
     def _initialize_weights(self):
         """
-        重みの初期化を改良した関数
+        重みの初期化を強化した関数 - ブランクトークンへのバイアスを大幅に減らす
         """
-        # Classifier層の初期化 - より均一な分布を目指す
-        # 各クラスが等しいチャンスを持つように初期化
-        nn.init.xavier_uniform_(
-            self.classifier.weight, gain=0.01
-        )  # gainを小さくして初期値を抑制
+        # Classifier層の初期化
+        nn.init.xavier_uniform_(self.classifier.weight)
+
+        # バイアスの特別な初期化 - ブランクを抑制し、他のクラスを強調
         if self.classifier.bias is not None:
-            # バイアスは最初はゼロに近い値に設定
-            nn.init.constant_(self.classifier.bias, 0)
+            # 最初にすべてのバイアスを0.5に設定（非ブランクに有利にする）
+            nn.init.constant_(self.classifier.bias, 0.5)
 
-            # ブランク以外のクラスにわずかに正のバイアスを与える
+            # ブランクのバイアスを大きな負の値に設定（選択されにくくする）
             with torch.no_grad():
-                for i in range(self.classifier.bias.size(0)):
-                    if i != self.blank_id:  # ブランク以外のクラス
-                        self.classifier.bias[i] += 0.1  # 小さな正のバイアス
+                self.classifier.bias[self.blank_id] = -3.0
 
-        print("モデルの重み初期化を実行しました（改良版）")
+        print("モデルの重み初期化を実行しました（強化版 - ブランク抑制）")
 
-        # 改良された重みの統計情報を表示
+        # 初期化後の重みとバイアスの統計を表示
         with torch.no_grad():
-            classifier_weights = self.classifier.weight.data
-            print(
-                f"分類層の重み統計: 平均={classifier_weights.mean().item():.4f}, 標準偏差={classifier_weights.std().item():.4f}"
-            )
-
-            # クラス別のバイアス値を確認（もしバイアスがある場合）
             if self.classifier.bias is not None:
                 blank_bias = self.classifier.bias[self.blank_id].item()
                 other_bias_mean = torch.mean(
@@ -112,7 +141,7 @@ class CNNBiLSTMModel(nn.Module):
                     )
                 ).item()
 
-                print(f"ブランクラベル({self.blank_id})のバイアス: {blank_bias:.4f}")
+                print(f"ブランクラベルのバイアス: {blank_bias:.4f}")
                 print(f"他のクラスの平均バイアス: {other_bias_mean:.4f}")
 
     def forward(
@@ -157,21 +186,14 @@ class CNNBiLSTMModel(nn.Module):
         # 無限大の値があるかチェック
         if torch.isinf(src_feature).any():
             print("警告: 入力src_featureに無限大の値が検出されました")
-        # 数値安定性のための正規化を追加
-        # src_feature形状は[batch, C*J, T]なので、dim=2ではなくdim=1に沿って正規化
-        # eps = 1e-5
-        # src_mean = src_feature.mean(dim=1, keepdim=True)
-        # src_std = src_feature.std(dim=1, keepdim=True) + eps
-        # src_feature = (src_feature - src_mean) / src_std
 
-        # # 大きすぎる値や小さすぎる値をクリップ
-        # src_feature = torch.clamp(src_feature, min=-5.0, max=5.0)
-        # print(src_feature.shape, "src_feature.shape")
-        # cnn_out = self.cnn_model(src_feature)  # return [batch, 512, T']
+        # CNNモデルの実行
         cnn_out, cnn_logit, updated_lgt = self.cnn_model(
             skeleton_feat=src_feature, hand_feat=spatial_feature, lgt=input_lengths
         )
-        print(cnn_out.shape, "cnn_out.shape", src_feature.shape, "src_feature.shape", input_lengths[0].shape, "input_lengths.shape", input_lengths[1].shape)
+
+        # 実際のCNN出力形状に基づいて長さを計算
+        updated_lgt = self.calculate_updated_lengths(input_lengths, T, cnn_out.shape[0])
 
         if torch.isnan(cnn_out).any():
             print("層1の出力にNaN値が検出されました")
@@ -182,44 +204,78 @@ class CNNBiLSTMModel(nn.Module):
             )
             exit(1)
 
-        # パディングマスクのサイズをCNN出力のシーケンス長に合わせる
-        if src_padding_mask is not None:
-            # 元のシーケンス長
-            original_seq_len = src_padding_mask.shape[1]
-            # CNNを通過した後のシーケンス長
-            cnn_seq_len = cnn_out.shape[1]
-            if original_seq_len != cnn_seq_len:
-                print(
-                    f"パディングマスクのサイズを調整: {original_seq_len} -> {cnn_seq_len}"
-                )
-                # シーケンスが短くなった場合は切り詰め
-                if original_seq_len > cnn_seq_len:
-                    src_padding_mask = src_padding_mask[:, :cnn_seq_len]
-
-                else:  # シーケンスが長くなった場合はパディング
-                    padding_length = cnn_seq_len - original_seq_len
-                    padding = torch.zeros(
-                        src_padding_mask.size(0),
-                        padding_length,
-                        dtype=src_padding_mask.dtype,
-                        device=src_padding_mask.device,
-                    )
-                    src_padding_mask = torch.cat((src_padding_mask, padding), dim=1)
-
-
-        # # クラス分類
+        # BiLSTMの実行
         print(f"updated_lgt: {updated_lgt}")
         print(f"updated_lgtの形状: {updated_lgt.shape}")
         print(f"updated_lgtの値: {updated_lgt.tolist()}")
         tm_outputs = self.temporal_model(cnn_out, updated_lgt)
         print(tm_outputs["predictions"].shape, "tm_outputs['predictions'].shape")
         outputs = self.classifier(tm_outputs["predictions"])  # (batch, T', num_classes)
-       
 
+        # ブランクトークン抑制 - 非常に強い場合のみ
+        if mode == "test" and blank_id is not None:
+            # テスト時のみブランクを直接抑制
+            with torch.no_grad():
+                # ブランクの確率を下げる（ロジット値を小さくする）
+                outputs[:, :, blank_id] -= 5.0  # 強制的に値を下げる
+                cnn_logit[:, :, blank_id] -= 5.0
+
+        # 予測確率分布の分析
+        with torch.no_grad():
+            # ソフトマックス適用後の確率分布を取得
+            probs = F.softmax(outputs, dim=-1)
+
+            # ブランクトークンの平均確率を計算
+            blank_probs = probs[:, :, self.blank_id].mean().item()
+
+            # nan防止のために丁寧に他のトークンの平均確率を計算
+            other_probs = 0.0
+            count = 0
+
+            # ブランク以前のトークンがあれば計算
+            if self.blank_id > 0:
+                pre_blank_probs = probs[:, :, : self.blank_id].mean().item()
+                other_probs += pre_blank_probs
+                count += 1
+
+            # ブランク以降のトークンがあれば計算
+            if self.blank_id < probs.shape[2] - 1:
+                post_blank_probs = probs[:, :, self.blank_id + 1 :].mean().item()
+                other_probs += post_blank_probs
+                count += 1
+
+            # 平均を計算（0除算防止）
+            if count > 0:
+                other_probs /= count
+
+            # 比率計算（0除算防止）
+            ratio = blank_probs / other_probs if other_probs > 0 else float("inf")
+
+            print(f"\n予測確率分析:")
+            print(f"ブランクトークン(<blank>)の平均確率: {blank_probs:.4f}")
+            print(f"他のトークンの平均確率: {other_probs:.4f}")
+            print(f"ブランク/他の比率: {ratio:.4f}")
+
+            # トップ5で最も頻繁に出現するトークンを表示
+            topk_values, topk_indices = torch.topk(probs.mean(dim=1), k=5, dim=1)
+            print(f"\nトップ5の予測トークン（バッチ0）:")
+            for i in range(5):
+                token_idx = topk_indices[0, i].item()
+                token_name = (
+                    self.decoder.i2g_dict[token_idx]
+                    if token_idx in self.decoder.i2g_dict
+                    else "不明"
+                )
+                print(f"  {token_name}: {topk_values[0, i].item():.4f}")
+
+        # デコード実行
         pred = self.decoder.decode(outputs, updated_lgt, batch_first=False, probs=False)
-        conv_pred = self.decoder.decode(cnn_logit, updated_lgt, batch_first=False, probs=False)
-        print(pred, "pred")
-        print(conv_pred, "conv_pred")
+        conv_pred = self.decoder.decode(
+            cnn_logit, updated_lgt, batch_first=False, probs=False
+        )
+        print(f"\nBiLSTM後のデコード結果: {pred}")
+        print(f"CNN直後のデコード結果: {conv_pred}")
+
         if mode != "test":
             ret_dict = {
                 "feat_len": updated_lgt,
@@ -229,28 +285,84 @@ class CNNBiLSTMModel(nn.Module):
                 "recognized_sents": pred,
             }
             loss = self.criterion_calculation(ret_dict, tgt_feature, target_lengths)
-            return loss, outputs 
+            return loss, outputs
         else:
             return pred, conv_pred
 
     def criterion_calculation(self, ret_dict, label, label_lgt):
         loss = 0
         for k, weight in self.loss_weights.items():
-            if k == 'ConvCTC':
-                loss += weight * self.loss['CTCLoss'](ret_dict["conv_logits"].log_softmax(-1),
-                                                      label.cpu().int(), ret_dict["feat_len"].cpu().int(),
-                                                      label_lgt.cpu().int()).mean()
-            elif k == 'SeqCTC':
-                loss += weight * self.loss['CTCLoss'](ret_dict["sequence_logits"].log_softmax(-1),
-                                                      label.cpu().int(), ret_dict["feat_len"].cpu().int(),
-                                                      label_lgt.cpu().int()).mean()
-            # elif k == 'Dist':
-            #     loss += weight * self.loss['distillation'](ret_dict["conv_logits"],
-            #                                                ret_dict["sequence_logits"].detach(),
-            #                                                use_blank=False)
+            if k == "ConvCTC":
+                loss += (
+                    weight
+                    * self.loss["CTCLoss"](
+                        ret_dict["conv_logits"].log_softmax(-1),
+                        label.cpu().int(),
+                        ret_dict["feat_len"].cpu().int(),
+                        label_lgt.cpu().int(),
+                    ).mean()
+                )
+            elif k == "SeqCTC":
+                loss += (
+                    weight
+                    * self.loss["CTCLoss"](
+                        ret_dict["sequence_logits"].log_softmax(-1),
+                        label.cpu().int(),
+                        ret_dict["feat_len"].cpu().int(),
+                        label_lgt.cpu().int(),
+                    ).mean()
+                )
+            elif k == "Dist":
+                loss += weight * self.loss["distillation"](
+                    ret_dict["conv_logits"],
+                    ret_dict["sequence_logits"].detach(),
+                    use_blank=False,
+                )
         return loss
 
     def criterion_init(self):
-        self.loss['CTCLoss'] = torch.nn.CTCLoss(reduction='none', zero_infinity=False)
-        self.loss['distillation'] = criterions.SeqKD(T=8)
+        self.loss["CTCLoss"] = torch.nn.CTCLoss(reduction="none", zero_infinity=False)
+        self.loss["distillation"] = criterions.SeqKD(T=8)
         return self.loss
+
+    def calculate_updated_lengths(
+        self, input_lengths, src_feature_T, cnn_output_shape_T
+    ):
+        """
+        CNNの出力形状に基づいて、入力長から更新された長さ(updated_lgt)を割合ベースで計算する関数
+
+        Args:
+            input_lengths (torch.Tensor): 元の入力シーケンス長 [batch_size]
+            src_feature_T (int): 入力特徴量のシーケンスの長さ(Maxで全て揃えているの) T
+            cnn_output_shape_T (int): CNNの出力のシーケンスの長さ T
+
+        Returns:
+            torch.Tensor: 更新された長さ情報 [batch_size]
+        """
+        # CNNの出力からシーケンス長次元を特定
+        actual_seq_len = cnn_output_shape_T  # CNNの出力シーケンス長
+
+        print(f"CNNの出力シーケンス長: {actual_seq_len}")
+
+        # 入力の最大長
+        max_input_len = src_feature_T
+
+        # 純粋に割合ベースで計算
+        scale_ratio = actual_seq_len / max_input_len
+        print(
+            f"スケール比率: {scale_ratio:.4f} (出力長 {actual_seq_len} / 最大入力長 {max_input_len})"
+        )
+
+        # すべてのサンプルに対して割合を適用
+        updated_lengths = []
+        for length in input_lengths:
+            # 入力長の割合と同じ割合で出力長を計算
+            proportion = length.item() / max_input_len  # 元の長さの最大に対する割合
+            updated_length = max(
+                1, int(actual_seq_len * proportion)
+            )  # 出力長に同じ割合を適用
+            updated_lengths.append(updated_length)
+
+        # テンソルに変換して返す
+        device = input_lengths.device
+        return torch.tensor(updated_lengths, dtype=torch.long, device=device)

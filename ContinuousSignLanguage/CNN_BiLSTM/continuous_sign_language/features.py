@@ -321,7 +321,7 @@ class PartsBasedNormalization:
     def __call__(self, data: Dict[str, Any]) -> Dict[str, Any]:
         feature = data["feature"]
         if self.face_num > 0:
-            feature[:, :, self.face_head : self.face_head + self.face_num] = 0
+            # feature[:, :, self.face_head : self.face_head + self.face_num] = 0
             face = feature[:, :, self.face_head : self.face_head + self.face_num]
             face = self._normalize(face, self.face_origin, self.face_unit1, self.face_unit2)
             feature[:, :, self.face_head : self.face_head + self.face_num] = face

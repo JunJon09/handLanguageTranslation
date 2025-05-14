@@ -26,7 +26,7 @@ batch_first = True
 #学習パラメータ
 label_smoothing = 0.1
 lr = 3e-4
-epochs = 200
+epochs = 100
 eval_every_n_epochs = 1
 
 #モデルの保存
