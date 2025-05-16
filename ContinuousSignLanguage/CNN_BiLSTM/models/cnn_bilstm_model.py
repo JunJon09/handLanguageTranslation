@@ -8,6 +8,33 @@ import torch
 import torch.nn.functional as F
 
 
+class SpatialCorrelationModule(nn.Module):
+    """空間的相関関係を学習する自己注意モジュール"""
+    def __init__(self, input_dim, hidden_dim=256):
+        super().__init__()
+        self.query_proj = nn.Linear(input_dim, hidden_dim)
+        self.key_proj = nn.Linear(input_dim, hidden_dim)
+        self.value_proj = nn.Linear(input_dim, hidden_dim)
+        self.scale = hidden_dim ** -0.5
+        self.output_proj = nn.Linear(hidden_dim, input_dim)
+        self.layer_norm = nn.LayerNorm(input_dim)
+
+    def forward(self, x):
+        # x: (T, B, D) → (B, T, D)
+        x = x.transpose(0, 1)
+        residual = x
+        q = self.query_proj(x)
+        k = self.key_proj(x)
+        v = self.value_proj(x)
+        attn = torch.matmul(q, k.transpose(-2, -1)) * self.scale  # (B, T, T)
+        attn = F.softmax(attn, dim=-1)
+        out = torch.matmul(attn, v)
+        out = self.output_proj(out)
+        out = self.layer_norm(residual + out)
+        # (B, T, D) → (T, B, D)
+        return out.transpose(0, 1)
+
+
 class CNNBiLSTMModel(nn.Module):
     def __init__(
         self,
@@ -64,6 +91,9 @@ class CNNBiLSTMModel(nn.Module):
             bidirectional=True,
         )
 
+        # 相関学習モジュールを追加
+        self.spatial_correlation = SpatialCorrelationModule(input_dim=192)
+
         # クラス分類用の線形層
         self.classifier = nn.Linear(192, num_classes)
 
@@ -106,7 +136,7 @@ class CNNBiLSTMModel(nn.Module):
         self.decoder = decode.Decode(
             gloss_dict=gloss_dict,
             num_classes=num_classes,
-            search_mode="greedy",  # 言語モデル統合型のグリーディサーチを使用
+            search_mode="greedy_lm",  # 言語モデル統合型のグリーディサーチを使用
             blank_id=0,
         )
 
@@ -203,6 +233,9 @@ class CNNBiLSTMModel(nn.Module):
                 f"問題がある入力の要素: {cnn_out[problem_indices[0][0], problem_indices[1][0], problem_indices[2][0]]}"
             )
             exit(1)
+
+        # 相関学習モジュールの適用
+        cnn_out = self.spatial_correlation(cnn_out)
 
         # BiLSTMの実行
         print(f"updated_lgt: {updated_lgt}")
