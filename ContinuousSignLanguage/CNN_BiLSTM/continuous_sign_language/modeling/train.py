@@ -3,6 +3,7 @@ import CNN_BiLSTM.continuous_sign_language.modeling.functions as functions
 import CNN_BiLSTM.models.cnn_bilstm_model as model
 import CNN_BiLSTM.continuous_sign_language.modeling.config as model_config
 import CNN_BiLSTM.continuous_sign_language.plots as plot
+import CNN_BiLSTM.continuous_sign_language.init_log as init_log
 import torch
 import os
 import numpy as np
@@ -69,7 +70,9 @@ def model_train():
 
     train_losses = []
     val_losses = []
+    wer_scores = []
     min_loss = float("inf")
+    min_wer = float("inf")
     cnn_transformer.to(device)
 
     # plotsディレクトリを作成
@@ -80,7 +83,7 @@ def model_train():
     for epoch in range(epochs):
         print("-" * 80)
         print(f"Epoch {epoch+1}")
-        train_loss, train_times = functions.train_loop(
+        train_loss = functions.train_loop(
             dataloader=train_dataloader,
             model=cnn_transformer,
             optimizer=optimizer,
@@ -91,7 +94,7 @@ def model_train():
         train_losses.append(train_loss)
 
         if (epoch + 1) % model_config.eval_every_n_epochs == 0:
-            val_loss, val_times = functions.val_loop(
+            val_loss, wer = functions.val_loop(
                 dataloader=val_dataloader,
                 model=cnn_transformer,
                 device=device,
@@ -99,19 +102,32 @@ def model_train():
                 current_epoch=epoch + 1,
             )
             val_losses.append(val_loss)
-            if min_loss > val_loss:  # lossが最小なのを保存
+            wer_scores.append(wer)
+            # if min_loss > val_loss:  # lossが最小なのを保存
+            #     functions.save_model(
+            #         save_path=model_config.model_save_path,
+            #         model_default_dict=cnn_transformer.state_dict(),
+            #         optimizer_dict=optimizer.state_dict(),
+            #         epoch=model_config.epochs,
+            #     )
+            #     min_loss = val_loss
+            if min_wer > wer:
                 functions.save_model(
                     save_path=model_config.model_save_path,
                     model_default_dict=cnn_transformer.state_dict(),
                     optimizer_dict=optimizer.state_dict(),
                     epoch=model_config.epochs,
                 )
-                min_loss = val_loss
+                min_wer = wer
 
     train_losses_array = np.array(train_losses)
     val_losses_array = np.array(val_losses)
+    wer_scores_array = np.array(wer_scores)
     print(
         f"Minimum validation loss:{val_losses_array.min()} at {np.argmin(val_losses_array)+1} epoch."
+    )
+    print(
+        f"Minimum WER:{wer_scores_array.min()} at {np.argmin(wer_scores_array)+1} epoch."
     )
 
     plot.train_loss_plot(train_losses_array)
@@ -119,7 +135,9 @@ def model_train():
     plot.train_val_loss_plot(
         train_losses_array, val_losses_array, model_config.eval_every_n_epochs
     )
+    plot.wer_plot(wer_scores_array, model_config.eval_every_n_epochs)
 
 
 if __name__ == "__main__":
+    logger, log_file = init_log.setup_logging()
     model_train()

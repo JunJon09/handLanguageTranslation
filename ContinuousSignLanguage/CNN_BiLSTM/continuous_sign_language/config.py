@@ -24,7 +24,7 @@ USE_RHAND = np.arange(478+33+21, 478+33+21+21)
 
 use_features = ["x", "y", "z"]
 load_into_ram = True
-batch_size = 8
+batch_size = 16
 spatial_spatial_feature = 25 * 2
 
 #plots
@@ -33,3 +33,4 @@ plot_loss_save_path = "cnn_transformer_loss.png"
 plot_loss_train_save_path = "cnn_transformer_train_loss.png"
 plot_loss_val_save_path = "cnn_transformer_val_loss.png"
 plot_loss_train_val_save_path = "cnn_transformer_train_val_loss.png"
+plot_wer_save_path = "cnn_transformer_wer.png"

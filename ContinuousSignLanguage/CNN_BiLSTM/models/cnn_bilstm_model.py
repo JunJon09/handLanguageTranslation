@@ -10,12 +10,13 @@ import torch.nn.functional as F
 
 class SpatialCorrelationModule(nn.Module):
     """空間的相関関係を学習する自己注意モジュール"""
+
     def __init__(self, input_dim, hidden_dim=256):
         super().__init__()
         self.query_proj = nn.Linear(input_dim, hidden_dim)
         self.key_proj = nn.Linear(input_dim, hidden_dim)
         self.value_proj = nn.Linear(input_dim, hidden_dim)
-        self.scale = hidden_dim ** -0.5
+        self.scale = hidden_dim**-0.5
         self.output_proj = nn.Linear(hidden_dim, input_dim)
         self.layer_norm = nn.LayerNorm(input_dim)
 
@@ -33,6 +34,91 @@ class SpatialCorrelationModule(nn.Module):
         out = self.layer_norm(residual + out)
         # (B, T, D) → (T, B, D)
         return out.transpose(0, 1)
+
+
+class HierarchicalTemporalModule(nn.Module):
+    """階層的時間モデリングを行うモジュール - 異なる時間スケールでの特徴抽出"""
+
+    def __init__(self, input_dim, hidden_dim=256):
+        super().__init__()
+        # 局所的特徴抽出（小さいカーネル）
+        self.local_conv = nn.Conv1d(
+            in_channels=input_dim,
+            out_channels=hidden_dim,
+            kernel_size=3,  # 短い時間スケール
+            padding=1,
+            stride=1,
+        )
+
+        # 中間的特徴抽出（中程度のカーネル、拡張畳み込み）
+        self.mid_conv = nn.Conv1d(
+            in_channels=hidden_dim,
+            out_channels=hidden_dim,
+            kernel_size=5,  # 中程度の時間スケール
+            padding=4,  # padding = (kernel_size-1) * dilation / 2
+            stride=1,
+            dilation=2,  # 拡張畳み込み - 受容野を広げる
+        )
+
+        # グローバル特徴抽出（大きいカーネル、大きい拡張率）
+        self.global_conv = nn.Conv1d(
+            in_channels=hidden_dim,
+            out_channels=hidden_dim,
+            kernel_size=7,  # 長い時間スケール
+            padding=9,  # padding = (kernel_size-1) * dilation / 2
+            stride=1,
+            dilation=3,  # さらに広い受容野
+        )
+
+        # 特徴統合層
+        self.fusion = nn.Linear(hidden_dim * 3, input_dim)
+        self.layer_norm = nn.LayerNorm(input_dim)
+        self.dropout = nn.Dropout(0.1)
+
+    def forward(self, x):
+        """
+        入力: x (T, B, D) - 時間優先の形状
+        出力: (T', B, D) - 異なる時間スケールで処理され融合された特徴
+        """
+        # 入力形状を変換: (T, B, D) -> (B, D, T) [Conv1d用]
+        batch_size = x.size(1)
+        x_permuted = x.permute(1, 2, 0)  # (T, B, D) -> (B, D, T)
+
+        # 異なる時間スケールでの特徴抽出
+        local_feat = F.relu(self.local_conv(x_permuted))  # 局所的特徴
+        mid_feat = F.relu(self.mid_conv(local_feat))  # 中間的特徴
+        global_feat = F.relu(self.global_conv(mid_feat))  # グローバル特徴
+
+        # 時間次元の長さを確認
+        local_T = local_feat.size(2)
+        mid_T = mid_feat.size(2)
+        global_T = global_feat.size(2)
+
+        # 時間次元を最小値に揃える
+        min_T = min(local_T, mid_T, global_T)
+        local_feat = local_feat[:, :, :min_T]
+        mid_feat = mid_feat[:, :, :min_T]
+        global_feat = global_feat[:, :, :min_T]
+
+        # (B, D, T) -> (B, T, D)に変換
+        local_feat = local_feat.permute(0, 2, 1)
+        mid_feat = mid_feat.permute(0, 2, 1)
+        global_feat = global_feat.permute(0, 2, 1)
+
+        # 特徴結合と融合
+        concat_feat = torch.cat(
+            [local_feat, mid_feat, global_feat], dim=2
+        )  # (B, T, 3*H)
+        fused_feat = self.dropout(self.fusion(concat_feat))  # (B, T, D)
+
+        # 残差接続のための元の入力を取得（時間次元を揃える）
+        x_btd = x.permute(1, 0, 2)[:, :min_T, :]  # (B, T', D)
+
+        # 残差接続とレイヤー正規化
+        output = self.layer_norm(fused_feat + x_btd)
+
+        # (B, T, D) -> (T, B, D)に戻す
+        return output.permute(1, 0, 2)
 
 
 class CNNBiLSTMModel(nn.Module):
@@ -76,11 +162,12 @@ class CNNBiLSTMModel(nn.Module):
 
         self.loss = dict()
         self.criterion_init()
+
         # 損失の重みを調整 - BiLSTMの重みを増やす
         self.loss_weights = {
-            "ConvCTC": 0.7,  # CNNからの出力の重みを下げる
+            "ConvCTC": 1.0,  # CNNからの出力の重みを下げる
             "SeqCTC": 1.0,  # BiLSTM後の出力の重みを上げる
-            "Dist": 0.1,  # 知識蒸留（Distillation）損失に対する重み
+            "Dist": 25.0,  # 知識蒸留（Distillation）損失に対する重み
         }
 
         self.temporal_model = BiLSTM.BiLSTMLayer(
@@ -136,7 +223,7 @@ class CNNBiLSTMModel(nn.Module):
         self.decoder = decode.Decode(
             gloss_dict=gloss_dict,
             num_classes=num_classes,
-            search_mode="greedy_lm",  # 言語モデル統合型のグリーディサーチを使用
+            search_mode="greedy",  # 言語モデル統合型のグリーディサーチを使用
             blank_id=0,
         )
 
@@ -156,8 +243,6 @@ class CNNBiLSTMModel(nn.Module):
             with torch.no_grad():
                 self.classifier.bias[self.blank_id] = -3.0
 
-        print("モデルの重み初期化を実行しました（強化版 - ブランク抑制）")
-
         # 初期化後の重みとバイアスの統計を表示
         with torch.no_grad():
             if self.classifier.bias is not None:
@@ -170,9 +255,6 @@ class CNNBiLSTMModel(nn.Module):
                         ]
                     )
                 ).item()
-
-                print(f"ブランクラベルのバイアス: {blank_bias:.4f}")
-                print(f"他のクラスの平均バイアス: {other_bias_mean:.4f}")
 
     def forward(
         self,
@@ -198,14 +280,6 @@ class CNNBiLSTMModel(nn.Module):
         if blank_id is None:
             blank_id = self.blank_id
 
-        # シーケンス長とバッチサイズを記録（デバッグ用）
-        print(
-            f"CNNに入力される長さの範囲: {input_lengths.min().item()} - {input_lengths.max().item()}"
-        )
-        print(
-            f"ターゲット長の範囲: {target_lengths.min().item()} - {target_lengths.max().item()}"
-        )
-
         N, C, T, J = src_feature.shape
         src_feature = src_feature.permute(0, 3, 1, 2).contiguous().view(N, C * J, T)
         spatial_feature = spatial_feature.permute(0, 2, 1)
@@ -213,10 +287,6 @@ class CNNBiLSTMModel(nn.Module):
         if torch.isnan(src_feature).any():
             print("警告: 入力src_featureにNaN値が検出されました")
             exit(1)
-        # 無限大の値があるかチェック
-        if torch.isinf(src_feature).any():
-            print("警告: 入力src_featureに無限大の値が検出されました")
-
         # CNNモデルの実行
         cnn_out, cnn_logit, updated_lgt = self.cnn_model(
             skeleton_feat=src_feature, hand_feat=spatial_feature, lgt=input_lengths
@@ -235,81 +305,92 @@ class CNNBiLSTMModel(nn.Module):
             exit(1)
 
         # 相関学習モジュールの適用
-        cnn_out = self.spatial_correlation(cnn_out)
+        # cnn_out = self.spatial_correlation(cnn_out)
+
+        # # 階層的時間モデリングモジュールの適用
+        # cnn_out = self.hierarchical_temporal(cnn_out)
 
         # BiLSTMの実行
-        print(f"updated_lgt: {updated_lgt}")
-        print(f"updated_lgtの形状: {updated_lgt.shape}")
-        print(f"updated_lgtの値: {updated_lgt.tolist()}")
         tm_outputs = self.temporal_model(cnn_out, updated_lgt)
-        print(tm_outputs["predictions"].shape, "tm_outputs['predictions'].shape")
+
         outputs = self.classifier(tm_outputs["predictions"])  # (batch, T', num_classes)
 
         # ブランクトークン抑制 - 非常に強い場合のみ
-        if mode == "test" and blank_id is not None:
-            # テスト時のみブランクを直接抑制
-            with torch.no_grad():
-                # ブランクの確率を下げる（ロジット値を小さくする）
-                outputs[:, :, blank_id] -= 5.0  # 強制的に値を下げる
-                cnn_logit[:, :, blank_id] -= 5.0
+        # if mode == "test" and blank_id is not None:
+        #     # テスト時のみブランクを直接抑制
+        #     with torch.no_grad():
+        #         # ブランクの確率を下げる（ロジット値を小さくする）
+        #         outputs[:, :, blank_id] -= 5.0  # 強制的に値を下げる
+        #         cnn_logit[:, :, blank_id] -= 5.0
 
         # 予測確率分布の分析
-        with torch.no_grad():
-            # ソフトマックス適用後の確率分布を取得
-            probs = F.softmax(outputs, dim=-1)
+        # with torch.no_grad():
+        #     # ソフトマックス適用後の確率分布を取得
+        #     probs = F.softmax(outputs, dim=-1)
 
-            # ブランクトークンの平均確率を計算
-            blank_probs = probs[:, :, self.blank_id].mean().item()
+        #     # ブランクトークンの平均確率を計算
+        #     blank_probs = probs[:, :, self.blank_id].mean().item()
 
-            # nan防止のために丁寧に他のトークンの平均確率を計算
-            other_probs = 0.0
-            count = 0
+        #     # nan防止のために丁寧に他のトークンの平均確率を計算
+        #     other_probs = 0.0
+        #     count = 0
 
-            # ブランク以前のトークンがあれば計算
-            if self.blank_id > 0:
-                pre_blank_probs = probs[:, :, : self.blank_id].mean().item()
-                other_probs += pre_blank_probs
-                count += 1
+        #     # ブランク以前のトークンがあれば計算
+        #     if self.blank_id > 0:
+        #         pre_blank_probs = probs[:, :, : self.blank_id].mean().item()
+        #         other_probs += pre_blank_probs
+        #         count += 1
 
-            # ブランク以降のトークンがあれば計算
-            if self.blank_id < probs.shape[2] - 1:
-                post_blank_probs = probs[:, :, self.blank_id + 1 :].mean().item()
-                other_probs += post_blank_probs
-                count += 1
+        #     # ブランク以降のトークンがあれば計算
+        #     if self.blank_id < probs.shape[2] - 1:
+        #         post_blank_probs = probs[:, :, self.blank_id + 1 :].mean().item()
+        #         other_probs += post_blank_probs
+        #         count += 1
 
-            # 平均を計算（0除算防止）
-            if count > 0:
-                other_probs /= count
+        #     # 平均を計算（0除算防止）
+        #     if count > 0:
+        #         other_probs /= count
 
-            # 比率計算（0除算防止）
-            ratio = blank_probs / other_probs if other_probs > 0 else float("inf")
+        #     # 比率計算（0除算防止）
+        #     ratio = blank_probs / other_probs if other_probs > 0 else float("inf")
 
-            print(f"\n予測確率分析:")
-            print(f"ブランクトークン(<blank>)の平均確率: {blank_probs:.4f}")
-            print(f"他のトークンの平均確率: {other_probs:.4f}")
-            print(f"ブランク/他の比率: {ratio:.4f}")
+        #     print(f"\n予測確率分析:")
+        #     print(f"ブランクトークン(<blank>)の平均確率: {blank_probs:.4f}")
+        #     print(f"他のトークンの平均確率: {other_probs:.4f}")
+        #     print(f"ブランク/他の比率: {ratio:.4f}")
 
-            # トップ5で最も頻繁に出現するトークンを表示
-            topk_values, topk_indices = torch.topk(probs.mean(dim=1), k=5, dim=1)
-            print(f"\nトップ5の予測トークン（バッチ0）:")
-            for i in range(5):
-                token_idx = topk_indices[0, i].item()
-                token_name = (
-                    self.decoder.i2g_dict[token_idx]
-                    if token_idx in self.decoder.i2g_dict
-                    else "不明"
-                )
-                print(f"  {token_name}: {topk_values[0, i].item():.4f}")
+        #     # トップ5で最も頻繁に出現するトークンを表示
+        #     topk_values, topk_indices = torch.topk(probs.mean(dim=1), k=5, dim=1)
+        #     print(f"\nトップ5の予測トークン（バッチ0）:")
+        #     for i in range(5):
+        #         token_idx = topk_indices[0, i].item()
+        #         token_name = (
+        #             self.decoder.i2g_dict[token_idx]
+        #             if token_idx in self.decoder.i2g_dict
+        #             else "不明"
+        #         )
+        #         print(f"  {token_name}: {topk_values[0, i].item():.4f}")
+        if mode == "train":
+            pred = None
+            conv_pred = None
+        elif mode == "eval":
+            pred = self.decoder.decode(cnn_logit, updated_lgt, batch_first=False, probs=False)
+            conv_pred = self.decoder.decode(cnn_logit, updated_lgt, batch_first=False, probs=False)
+        else:
+            pred = self.decoder.decode(cnn_logit, updated_lgt, batch_first=False, probs=True)
+            conv_pred = self.decoder.decode(cnn_logit, updated_lgt, batch_first=False, probs=True)
 
-        # デコード実行
-        pred = self.decoder.decode(outputs, updated_lgt, batch_first=False, probs=False)
-        conv_pred = self.decoder.decode(
-            cnn_logit, updated_lgt, batch_first=False, probs=False
-        )
-        print(f"\nBiLSTM後のデコード結果: {pred}")
-        print(f"CNN直後のデコード結果: {conv_pred}")
 
-        if mode != "test":
+        return { 
+            "feat_len": updated_lgt,
+            "conv_logits": cnn_logit,
+            "sequence_logits": outputs,
+            "conv_sents": conv_pred,
+            "recognized_sents": pred,
+        }
+        
+
+        if mode == "train":
             ret_dict = {
                 "feat_len": updated_lgt,
                 "conv_logits": cnn_logit,
@@ -320,6 +401,28 @@ class CNNBiLSTMModel(nn.Module):
             loss = self.criterion_calculation(ret_dict, tgt_feature, target_lengths)
             return loss, outputs
         else:
+            # テスト時には分析を実行
+            # トークン分布を分析（analyze=Trueで実行）
+            pred = self.decoder.decode(
+                outputs, updated_lgt, batch_first=False, probs=False, analyze=True
+            )
+            conv_pred = self.decoder.decode(
+                cnn_logit, updated_lgt, batch_first=False, probs=False
+            )
+            # Top5トークンの情報を取得
+            if hasattr(self.decoder, 'analyze_frame_by_frame_distribution'):
+                frame_analysis = self.decoder.analyze_frame_by_frame_distribution(
+                    outputs.permute(1, 0, 2),  # (B, T, C)形式に変換
+                    updated_lgt, 
+                    save_plot=True
+                )
+                
+                # パターン分析も実行
+                # self.decoder.analyze_frame_level_patterns(
+                #     outputs.permute(1, 0, 2),
+                #     updated_lgt,
+                #     save_plot=True
+                # )
             return pred, conv_pred
 
     def criterion_calculation(self, ret_dict, label, label_lgt):
@@ -351,12 +454,57 @@ class CNNBiLSTMModel(nn.Module):
                     ret_dict["sequence_logits"].detach(),
                     use_blank=False,
                 )
+            elif k == "BlankPenalty":
+                # ブランクペナルティの計算
+                blank_penalty = self.calculate_blank_penalty(
+                    ret_dict["sequence_logits"], ret_dict["conv_logits"]
+                )
+                loss += weight * blank_penalty
         return loss
 
     def criterion_init(self):
         self.loss["CTCLoss"] = torch.nn.CTCLoss(reduction="none", zero_infinity=False)
         self.loss["distillation"] = criterions.SeqKD(T=8)
         return self.loss
+
+    def calculate_blank_penalty(self, sequence_logits, conv_logits):
+        """
+        ブランクトークンの過度な出力を抑制するペナルティを計算
+
+        Args:
+            sequence_logits: BiLSTM出力のロジット (T, B, num_classes)
+            conv_logits: CNN出力のロジット (T, B, num_classes)
+
+        Returns:
+            torch.Tensor: ブランクペナルティ損失
+        """
+        # ソフトマックス確率を計算
+        seq_probs = F.softmax(sequence_logits, dim=-1)
+        conv_probs = F.softmax(conv_logits, dim=-1)
+
+        # ブランクトークンの確率を取得
+        seq_blank_probs = seq_probs[:, :, self.blank_id]  # (T, B)
+        conv_blank_probs = conv_probs[:, :, self.blank_id]  # (T, B)
+
+        # ペナルティの計算方法（以下から選択）
+
+        # 方法1: ブランク確率の平均をペナルティとして追加
+        seq_penalty = seq_blank_probs.mean()
+        conv_penalty = conv_blank_probs.mean()
+
+        # 方法2: ブランク確率が閾値を超えた場合のみペナルティ
+        # threshold = 0.7  # ブランク確率の閾値
+        # seq_penalty = F.relu(seq_blank_probs - threshold).mean()
+        # conv_penalty = F.relu(conv_blank_probs - threshold).mean()
+
+        # 方法3: ブランク確率の二乗ペナルティ（より強い抑制）
+        # seq_penalty = (seq_blank_probs ** 2).mean()
+        # conv_penalty = (conv_blank_probs ** 2).mean()
+
+        # 両方の出力に対するペナルティの平均
+        total_penalty = (seq_penalty + conv_penalty) / 2
+
+        return total_penalty
 
     def calculate_updated_lengths(
         self, input_lengths, src_feature_T, cnn_output_shape_T
@@ -375,17 +523,11 @@ class CNNBiLSTMModel(nn.Module):
         # CNNの出力からシーケンス長次元を特定
         actual_seq_len = cnn_output_shape_T  # CNNの出力シーケンス長
 
-        print(f"CNNの出力シーケンス長: {actual_seq_len}")
-
         # 入力の最大長
         max_input_len = src_feature_T
 
         # 純粋に割合ベースで計算
         scale_ratio = actual_seq_len / max_input_len
-        print(
-            f"スケール比率: {scale_ratio:.4f} (出力長 {actual_seq_len} / 最大入力長 {max_input_len})"
-        )
-
         # すべてのサンプルに対して割合を適用
         updated_lengths = []
         for length in input_lengths:

@@ -2,9 +2,12 @@ import CNN_BiLSTM.continuous_sign_language.modeling.functions as functions
 import CNN_BiLSTM.models.cnn_bilstm_model as model
 import CNN_BiLSTM.continuous_sign_language.modeling.config as model_config
 import CNN_BiLSTM.continuous_sign_language.dataset as dataset
+import CNN_BiLSTM.continuous_sign_language.init_log as init_log
 import torch
-
+import logging
 if __name__ == "__main__":
+    logger, log_file = init_log.setup_logging()
+    logging.info("テストを開始しました")
     train_hdf5files, val_hdf5files, test_hdf5files, key2token = dataset.read_dataset()
     train_dataloader, val_dataloader, test_dataloader, in_channels = functions.set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files)
     VOCAB = len(key2token)
