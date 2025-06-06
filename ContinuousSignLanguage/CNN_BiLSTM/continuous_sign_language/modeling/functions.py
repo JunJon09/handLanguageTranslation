@@ -13,6 +13,7 @@ import numpy as np
 import torch
 from jiwer import wer, cer, mer
 from torch.cuda.amp import GradScaler
+import logging
 
 
 
@@ -247,27 +248,30 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
             pred_times.append([frames, pred_end - pred_start])
             pred = ret_dict["recognized_sents"]
             conv_pred = ret_dict["conv_sents"]
-            
+
+            # logging.info("predとtokenの形状")
+            # logging.info(pred)
+            # logging.info(tokens)
 
             tokens = tokens.tolist()
-            hypothesis_text_conv_list.append(" ".join(map(str, tokens)))
             reference_text = [" ".join(map(str, seq)) for seq in tokens]
-
+            
             pred_words = [[middle_dataset_relation.middle_dataset_relation_dict[word] for word, idx in sample] for sample in pred]
             hypothesis_text = [" ".join(map(str, seq)) for seq in pred_words]
 
             conv_pred_words = [[middle_dataset_relation.middle_dataset_relation_dict[word] for word, idx in sample] for sample in conv_pred]
             hypothesis_text_conv =[" ".join(map(str,seq)) for seq in conv_pred_words]
-            
-            
-            reference_text_list.append(reference_text[0])
-            hypothesis_text_list.append(hypothesis_text[0])
-            hypothesis_text_conv_list.append(hypothesis_text_conv[0])
+
+            reference_text_list.append(reference_text)
+            hypothesis_text_list.append(hypothesis_text)
+            hypothesis_text_conv_list.append(hypothesis_text_conv)
 
             val_loss += loss.item()
             del loss
             del ret_dict
-
+   
+    reference_text_list = [item for sublist in reference_text_list for item in sublist]
+    hypothesis_text_list = [item for sublist in hypothesis_text_list for item in sublist]
     wer_score = wer(reference_text, hypothesis_text)
     val_loss /= num_batches
     print(f"Wer: {wer_score:.10f}, Avg loss: {val_loss:.10f}")
@@ -386,7 +390,7 @@ def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
             
             reference_text_list.append(reference_text[0])
             hypothesis_text_list.append(hypothesis_text[0])
-            hypothesis_text_conv_list.append(hypothesis_text_conv[0])   
+            hypothesis_text_conv_list.append(hypothesis_text_conv[0])
     print(reference_text_list)
     print(hypothesis_text_list)
     print(f"Done. Time:{time.perf_counter()-start}")

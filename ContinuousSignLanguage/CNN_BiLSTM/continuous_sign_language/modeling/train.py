@@ -139,5 +139,6 @@ def model_train():
 
 
 if __name__ == "__main__":
-    logger, log_file = init_log.setup_logging()
+    logger, log_file = init_log.setup_logging(log_dir="./CNN_BiLSTM/logs", console_output=False)
+
     model_train()
