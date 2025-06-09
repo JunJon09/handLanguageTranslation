@@ -163,11 +163,12 @@ class CNNBiLSTMModel(nn.Module):
         self.loss = dict()
         self.criterion_init()
 
-        # 損失の重みを調整 - BiLSTMの重みを増やす
+        # 損失の重みを調整 - 知識蒸留の重みを大幅に削減
         self.loss_weights = {
-            "ConvCTC": 1.0,  # CNNからの出力の重みを下げる
-            "SeqCTC": 1.0,  # BiLSTM後の出力の重みを上げる
-            "Dist": 25.0,  # 知識蒸留（Distillation）損失に対する重み
+            "ConvCTC": 1.0,  # CNNからの出力の重み
+            "SeqCTC": 1.0,  # BiLSTM後の出力の重み
+            "Dist": 25.0,  # 知識蒸留損失の重みを25.0から5.0に削減（他の成功例に合わせる）
+            # "BlankPenalty": 0.01,  # ブランクペナルティの重みを追加
         }
 
         self.temporal_model = BiLSTM.BiLSTMLayer(
@@ -241,7 +242,7 @@ class CNNBiLSTMModel(nn.Module):
 
             # ブランクのバイアスを大きな負の値に設定（選択されにくくする）
             with torch.no_grad():
-                self.classifier.bias[self.blank_id] = -3.0
+                self.classifier.bias[self.blank_id] = -5.0
 
         # 初期化後の重みとバイアスの統計を表示
         with torch.no_grad():
@@ -374,56 +375,27 @@ class CNNBiLSTMModel(nn.Module):
             pred = None
             conv_pred = None
         elif mode == "eval":
-            pred = self.decoder.decode(cnn_logit, updated_lgt, batch_first=False, probs=False)
-            conv_pred = self.decoder.decode(cnn_logit, updated_lgt, batch_first=False, probs=False)
+            pred = self.decoder.decode(
+                cnn_logit, updated_lgt, batch_first=False, probs=False
+            )
+            conv_pred = self.decoder.decode(
+                cnn_logit, updated_lgt, batch_first=False, probs=False
+            )
         else:
-            pred = self.decoder.decode(cnn_logit, updated_lgt, batch_first=False, probs=True)
-            conv_pred = self.decoder.decode(cnn_logit, updated_lgt, batch_first=False, probs=True)
+            pred = self.decoder.decode(
+                cnn_logit, updated_lgt, batch_first=False, probs=True
+            )
+            conv_pred = self.decoder.decode(
+                cnn_logit, updated_lgt, batch_first=False, probs=True
+            )
 
-
-        return { 
+        return {
             "feat_len": updated_lgt,
             "conv_logits": cnn_logit,
             "sequence_logits": outputs,
             "conv_sents": conv_pred,
             "recognized_sents": pred,
         }
-        
-
-        if mode == "train":
-            ret_dict = {
-                "feat_len": updated_lgt,
-                "conv_logits": cnn_logit,
-                "sequence_logits": outputs,
-                "conv_sents": conv_pred,
-                "recognized_sents": pred,
-            }
-            loss = self.criterion_calculation(ret_dict, tgt_feature, target_lengths)
-            return loss, outputs
-        else:
-            # テスト時には分析を実行
-            # トークン分布を分析（analyze=Trueで実行）
-            pred = self.decoder.decode(
-                outputs, updated_lgt, batch_first=False, probs=False, analyze=True
-            )
-            conv_pred = self.decoder.decode(
-                cnn_logit, updated_lgt, batch_first=False, probs=False
-            )
-            # Top5トークンの情報を取得
-            if hasattr(self.decoder, 'analyze_frame_by_frame_distribution'):
-                frame_analysis = self.decoder.analyze_frame_by_frame_distribution(
-                    outputs.permute(1, 0, 2),  # (B, T, C)形式に変換
-                    updated_lgt, 
-                    save_plot=True
-                )
-                
-                # パターン分析も実行
-                # self.decoder.analyze_frame_level_patterns(
-                #     outputs.permute(1, 0, 2),
-                #     updated_lgt,
-                #     save_plot=True
-                # )
-            return pred, conv_pred
 
     def criterion_calculation(self, ret_dict, label, label_lgt):
         loss = 0

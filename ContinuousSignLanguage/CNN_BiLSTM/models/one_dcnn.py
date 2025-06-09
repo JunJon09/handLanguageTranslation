@@ -182,7 +182,6 @@ class ResNet1D(nn.Module):
             )
 
         layers = []
-        print(self.in_channels, "***************")
         layers.append(block(self.in_channels, out_channels, stride, downsample))
         self.in_channels = out_channels * block.expansion
         for _ in range(1, blocks):

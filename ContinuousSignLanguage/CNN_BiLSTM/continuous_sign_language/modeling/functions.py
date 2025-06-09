@@ -184,7 +184,7 @@ def train_loop(
     # 学習率スケジューラを更新
     if scheduler is not None:
         scheduler.step()
-        print(f"Learning rate updated to: {scheduler.get_last_lr()[0]:.6f}")
+        logging.info(f"Learning rate updated to: {scheduler.get_last_lr()[0]:.6f}")
 
     print(f"Done. Time:{time.perf_counter()-start}")
     # Average loss.
@@ -231,6 +231,7 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
             # Predict.
             input_lengths = feature_lengths
             target_lengths = target_lengths = torch.sum(tokens_pad_mask, dim=1)
+            logging.info(target_lengths)
             pred_start = time.perf_counter()
             ret_dict = model.forward(
                 src_feature=feature,
@@ -249,9 +250,7 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
             pred = ret_dict["recognized_sents"]
             conv_pred = ret_dict["conv_sents"]
 
-            # logging.info("predとtokenの形状")
-            # logging.info(pred)
-            # logging.info(tokens)
+
 
             tokens = tokens.tolist()
             reference_text = [" ".join(map(str, seq)) for seq in tokens]

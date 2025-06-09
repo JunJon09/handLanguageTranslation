@@ -8,6 +8,7 @@ import torch
 import os
 import numpy as np
 
+
 def model_train():
     train_hdf5files, val_hdf5files, test_hdf5files, key2token = dataset.read_dataset()
     train_dataloader, val_dataloader, test_dataloader, in_channels = (
@@ -51,19 +52,27 @@ def model_train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # より低い学習率で開始し、学習の安定性を向上
-    initial_lr = model_config.lr * 0.1  # 元の学習率の1/10
-    optimizer = torch.optim.Adam(cnn_transformer.parameters(), lr=initial_lr)
+    initial_lr = 0.0001  # 他の成功例に合わせて学習率を下げる
+    optimizer = torch.optim.Adam(
+        cnn_transformer.parameters(), lr=initial_lr, weight_decay=0.0001  # 正則化を追加
+    )
 
     # 学習率スケジューラを追加
     # ウォームアップ後に徐々に学習率を下げるスケジューラ
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+    # scheduler = torch.optim.lr_scheduler.OneCycleLR(
+    #     optimizer,
+    #     max_lr=0.0001,  # 最大学習率も他の成功例に合わせる
+    #     steps_per_epoch=len(train_dataloader),
+    #     epochs=model_config.epochs,
+    #     pct_start=0.3,  # 学習率がピークに達するまでのエポック割合
+    #     div_factor=10.0,  # 初期学習率 = max_lr / div_factor
+    #     final_div_factor=100.0,  # 最終学習率 = max_lr / (div_factor * final_div_factor)
+    # )
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(
         optimizer,
-        max_lr=model_config.lr,  # 最大学習率は元の設定値
-        steps_per_epoch=len(train_dataloader),
-        epochs=model_config.epochs,
-        pct_start=0.3,  # 学習率がピークに達するまでのエポック割合
-        div_factor=10.0,  # 初期学習率 = max_lr / div_factor
-        final_div_factor=100.0,  # 最終学習率 = max_lr / (div_factor * final_div_factor)
+        milestones=[30, 60, 90],  # エポック30, 60, 90で学習率を下げる
+        gamma=0.2,                # 各マイルストーンで学習率を0.2倍にする
+        last_epoch=-1
     )
 
     epochs = model_config.epochs
@@ -139,6 +148,8 @@ def model_train():
 
 
 if __name__ == "__main__":
-    logger, log_file = init_log.setup_logging(log_dir="./CNN_BiLSTM/logs", console_output=False)
+    logger, log_file = init_log.setup_logging(
+        log_dir="./CNN_BiLSTM/logs", console_output=False
+    )
 
     model_train()

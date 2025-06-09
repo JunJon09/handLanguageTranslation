@@ -75,7 +75,7 @@ def wer_plot(wer_scores_default, eval_every_n_epochs):
     plt.plot(xs_val, wer_scores_default, label="Default", marker=".")
     plt.xlabel("Epochs")
     plt.ylabel("WER")
-    plt.ylim([0.0, 50.0])
+    plt.ylim([0.0, 1.5])
     plt.xticks(np.arange(1, len(wer_scores_default)+1, eval_every_n_epochs))
     plt.legend()
     save_path = os.path.join(config.plot_save_dir, config.plot_wer_save_path)
