@@ -2,7 +2,7 @@ import CNN_BiLSTM.models.one_dcnn as cnn
 import CNN_BiLSTM.models.BiLSTM as BiLSTM
 import CNN_BiLSTM.models.decode as decode
 import CNN_BiLSTM.models.criterions as criterions
-
+import logging
 from torch import nn
 import torch
 import torch.nn.functional as F
@@ -153,9 +153,9 @@ class CNNBiLSTMModel(nn.Module):
         self.cnn_model = cnn.DualCNNWithCTC(
             skeleton_input_size=in_channels,
             hand_feature_size=50,
-            skeleton_hidden_size=128,
-            hand_hidden_size=128,
-            fusion_hidden_size=192,
+            skeleton_hidden_size=512,
+            hand_hidden_size=512,
+            fusion_hidden_size=1024,
             num_classes=num_classes,
             blank_idx=blank_idx,
         ).to("cpu")
@@ -163,27 +163,39 @@ class CNNBiLSTMModel(nn.Module):
         self.loss = dict()
         self.criterion_init()
 
+        # クラス重み付きCE損失用の重みを設定
+        class_weights = torch.ones(num_classes)
+        class_weights[1] = 0.3  # "私"クラスの重みを30%に削減
+        self.class_weights = class_weights
+
         # 損失の重みを調整 - 知識蒸留の重みを大幅に削減
         self.loss_weights = {
             "ConvCTC": 1.0,  # CNNからの出力の重み
             "SeqCTC": 1.0,  # BiLSTM後の出力の重み
             "Dist": 25.0,  # 知識蒸留損失の重みを25.0から5.0に削減（他の成功例に合わせる）
+            "CE": 0.5,  # 重み付きクロスエントロピー損失を追加
             # "BlankPenalty": 0.01,  # ブランクペナルティの重みを追加
         }
 
+        # 相関学習モジュールを追加（1024次元に修正）
+        self.spatial_correlation = SpatialCorrelationModule(input_dim=1024)
+
+        # 階層的時間モデリングモジュールの適用
+        self.hierarchical_temporal = HierarchicalTemporalModule(
+            input_dim=1024,
+            hidden_dim=1024,  # 隠れ層のサイズ
+        )
+
         self.temporal_model = BiLSTM.BiLSTMLayer(
             rnn_type="LSTM",
-            input_size=192,
-            hidden_size=192,  # 隠れ層のサイズ
+            input_size=1024,
+            hidden_size=1024,  # 隠れ層のサイズ
             num_layers=2,
             bidirectional=True,
         )
 
-        # 相関学習モジュールを追加
-        self.spatial_correlation = SpatialCorrelationModule(input_dim=192)
-
         # クラス分類用の線形層
-        self.classifier = nn.Linear(192, num_classes)
+        self.classifier = nn.Linear(1024, num_classes)
 
         # 重みの初期化を行う - コメントアウトを解除
         self._initialize_weights()
@@ -235,14 +247,23 @@ class CNNBiLSTMModel(nn.Module):
         # Classifier層の初期化
         nn.init.xavier_uniform_(self.classifier.weight)
 
-        # バイアスの特別な初期化 - ブランクを抑制し、他のクラスを強調
+        # バイアスの特別な初期化 - クラス偏りを考慮した調整
         if self.classifier.bias is not None:
-            # 最初にすべてのバイアスを0.5に設定（非ブランクに有利にする）
-            nn.init.constant_(self.classifier.bias, 0.5)
+            # 基本的に全て0に初期化
+            nn.init.constant_(self.classifier.bias, 0.0)
 
-            # ブランクのバイアスを大きな負の値に設定（選択されにくくする）
             with torch.no_grad():
-                self.classifier.bias[self.blank_id] = -5.0
+                # ブランクは適度に抑制（完全に抑制しない）
+                self.classifier.bias[self.blank_id] = -1.0
+
+                # 頻出クラス"1"（私）を強く抑制
+                self.classifier.bias[1] = -2.0
+
+                # 他の主要クラスを少し優遇
+                if self.classifier.bias.size(0) > 2:
+                    self.classifier.bias[2] = 0.3  # "あなた"
+                if self.classifier.bias.size(0) > 3:
+                    self.classifier.bias[3] = 0.3  # "彼"
 
         # 初期化後の重みとバイアスの統計を表示
         with torch.no_grad():
@@ -306,10 +327,10 @@ class CNNBiLSTMModel(nn.Module):
             exit(1)
 
         # 相関学習モジュールの適用
-        # cnn_out = self.spatial_correlation(cnn_out)
+        cnn_out = self.spatial_correlation(cnn_out)
 
         # # 階層的時間モデリングモジュールの適用
-        # cnn_out = self.hierarchical_temporal(cnn_out)
+        cnn_out = self.hierarchical_temporal(cnn_out)
 
         # BiLSTMの実行
         tm_outputs = self.temporal_model(cnn_out, updated_lgt)
@@ -399,9 +420,12 @@ class CNNBiLSTMModel(nn.Module):
 
     def criterion_calculation(self, ret_dict, label, label_lgt):
         loss = 0
+        ConvCTC_loss = 0
+        SeqCTC_loss = 0
+        Dist_loss = 0
         for k, weight in self.loss_weights.items():
             if k == "ConvCTC":
-                loss += (
+                ConvCTC_loss += (
                     weight
                     * self.loss["CTCLoss"](
                         ret_dict["conv_logits"].log_softmax(-1),
@@ -411,7 +435,7 @@ class CNNBiLSTMModel(nn.Module):
                     ).mean()
                 )
             elif k == "SeqCTC":
-                loss += (
+                SeqCTC_loss += (
                     weight
                     * self.loss["CTCLoss"](
                         ret_dict["sequence_logits"].log_softmax(-1),
@@ -420,8 +444,48 @@ class CNNBiLSTMModel(nn.Module):
                         label_lgt.cpu().int(),
                     ).mean()
                 )
+            elif k == "CE":
+                # 簡単なクロスエントロピー損失の実装
+                # シーケンス全体の平均ラベルに対するクロスエントロピー
+                device = ret_dict["sequence_logits"].device
+                ce_weights = self.class_weights.to(device)
+
+                # 重み付きクロスエントロピー損失関数
+                ce_criterion = nn.CrossEntropyLoss(weight=ce_weights, reduction="mean")
+
+                # シーケンス平均の予測分布を計算
+                batch_size = ret_dict["sequence_logits"].shape[0]
+                feat_len_size = ret_dict["feat_len"].shape[0]
+                label_size = label.shape[0]
+
+                # サイズの最小値を使用して安全にループ
+                actual_batch_size = min(batch_size, feat_len_size, label_size)
+                ce_loss_total = 0
+
+                for b in range(actual_batch_size):
+                    # このバッチのシーケンス長を取得
+                    seq_len = ret_dict["feat_len"][b].item()
+                    target_len = label_lgt[b].item()
+
+                    if seq_len > 0 and target_len > 0:
+                        # 予測の時間平均を計算
+                        logits_mean = ret_dict["sequence_logits"][b, :seq_len].mean(
+                            dim=0
+                        )  # (num_classes,)
+
+                        # ターゲットの最初のトークンを使用（簡易実装）
+                        target_token = label[b, 0]  # 最初のトークン
+
+                        # クロスエントロピー損失を計算
+                        ce_loss_batch = ce_criterion(
+                            logits_mean.unsqueeze(0), target_token.unsqueeze(0)
+                        )
+                        ce_loss_total += ce_loss_batch
+
+                if actual_batch_size > 0:
+                    loss += weight * (ce_loss_total / actual_batch_size)
             elif k == "Dist":
-                loss += weight * self.loss["distillation"](
+                Dist_loss += weight * self.loss["distillation"](
                     ret_dict["conv_logits"],
                     ret_dict["sequence_logits"].detach(),
                     use_blank=False,
@@ -432,12 +496,12 @@ class CNNBiLSTMModel(nn.Module):
                     ret_dict["sequence_logits"], ret_dict["conv_logits"]
                 )
                 loss += weight * blank_penalty
+        loss = ConvCTC_loss + SeqCTC_loss + Dist_loss
         return loss
 
     def criterion_init(self):
         self.loss["CTCLoss"] = torch.nn.CTCLoss(reduction="none", zero_infinity=False)
         self.loss["distillation"] = criterions.SeqKD(T=8)
-        return self.loss
 
     def calculate_blank_penalty(self, sequence_logits, conv_logits):
         """

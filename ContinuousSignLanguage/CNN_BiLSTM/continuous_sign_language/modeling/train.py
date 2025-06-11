@@ -52,27 +52,19 @@ def model_train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # より低い学習率で開始し、学習の安定性を向上
-    initial_lr = 0.0001  # 他の成功例に合わせて学習率を下げる
+    initial_lr = 0.0003  # 学習率を少し上げてクラス偏りからの脱却を促進
     optimizer = torch.optim.Adam(
         cnn_transformer.parameters(), lr=initial_lr, weight_decay=0.0001  # 正則化を追加
     )
 
-    # 学習率スケジューラを追加
-    # ウォームアップ後に徐々に学習率を下げるスケジューラ
-    # scheduler = torch.optim.lr_scheduler.OneCycleLR(
-    #     optimizer,
-    #     max_lr=0.0001,  # 最大学習率も他の成功例に合わせる
-    #     steps_per_epoch=len(train_dataloader),
-    #     epochs=model_config.epochs,
-    #     pct_start=0.3,  # 学習率がピークに達するまでのエポック割合
-    #     div_factor=10.0,  # 初期学習率 = max_lr / div_factor
-    #     final_div_factor=100.0,  # 最終学習率 = max_lr / (div_factor * final_div_factor)
-    # )
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(
+    # より適応的なスケジューラーを使用
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
-        milestones=[30, 60, 90],  # エポック30, 60, 90で学習率を下げる
-        gamma=0.2,                # 各マイルストーンで学習率を0.2倍にする
-        last_epoch=-1
+        mode="min",  # 損失の最小化を監視
+        factor=0.5,  # 学習率を半分に
+        patience=5,  # 5エポック改善がなければ学習率を下げる
+        min_lr=1e-6,  # 最小学習率
+        verbose=True,
     )
 
     epochs = model_config.epochs
@@ -112,6 +104,13 @@ def model_train():
             )
             val_losses.append(val_loss)
             wer_scores.append(wer)
+
+            # ReduceLROnPlateauスケジューラーにval_lossを渡す
+            scheduler.step(val_loss)
+
+            print(f"Validation Loss: {val_loss:.4f}, WER: {wer:.4f}")
+            print(f"Current Learning Rate: {optimizer.param_groups[0]['lr']:.6f}")
+
             # if min_loss > val_loss:  # lossが最小なのを保存
             #     functions.save_model(
             #         save_path=model_config.model_save_path,
@@ -128,7 +127,7 @@ def model_train():
                     epoch=model_config.epochs,
                 )
                 min_wer = wer
-
+                print(f"Best model saved at epoch {epoch+1} with WER: {min_wer:.4f}")
     train_losses_array = np.array(train_losses)
     val_losses_array = np.array(val_losses)
     wer_scores_array = np.array(wer_scores)

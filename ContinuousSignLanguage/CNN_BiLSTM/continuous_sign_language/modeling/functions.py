@@ -16,7 +16,6 @@ from torch.cuda.amp import GradScaler
 import logging
 
 
-
 def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
     _, use_landmarks = features.get_fullbody_landmarks()
     trans_select_feature = features.SelectLandmarksAndFeature(
@@ -53,11 +52,7 @@ def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
         load_into_ram=config.load_into_ram,
     )
 
-    feature_shape = (
-        len(config.use_features),
-        -1,
-        len(use_landmarks)
-    )
+    feature_shape = (len(config.use_features), -1, len(use_landmarks))
     token_shape = (-1,)
     num_workers = os.cpu_count()
     merge_fn = partial(
@@ -154,13 +149,16 @@ def train_loop(
             print("警告: NaNが検出されました。このバッチをスキップします")
             continue
 
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-        
+        if scaler is not None:
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            optimizer.step()
+
         # 勾配クリッピングの値を小さくして安定性を向上
         # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
-        # optimizer.step()
 
         train_loss += loss.item()
         del loss
@@ -182,9 +180,9 @@ def train_loop(
         #     print(f"loss:{loss:>7f} [{steps:>5d}/{size:>5d}]")
 
     # 学習率スケジューラを更新
-    if scheduler is not None:
-        scheduler.step()
-        logging.info(f"Learning rate updated to: {scheduler.get_last_lr()[0]:.6f}")
+    # if scheduler is not None:
+    #     scheduler.step()
+    #     logging.info(f"Learning rate updated to: {scheduler.get_last_lr()[0]:.6f}")
 
     print(f"Done. Time:{time.perf_counter()-start}")
     # Average loss.
@@ -250,16 +248,26 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
             pred = ret_dict["recognized_sents"]
             conv_pred = ret_dict["conv_sents"]
 
-
-
             tokens = tokens.tolist()
             reference_text = [" ".join(map(str, seq)) for seq in tokens]
-            
-            pred_words = [[middle_dataset_relation.middle_dataset_relation_dict[word] for word, idx in sample] for sample in pred]
+
+            pred_words = [
+                [
+                    middle_dataset_relation.middle_dataset_relation_dict[word]
+                    for word, idx in sample
+                ]
+                for sample in pred
+            ]
             hypothesis_text = [" ".join(map(str, seq)) for seq in pred_words]
 
-            conv_pred_words = [[middle_dataset_relation.middle_dataset_relation_dict[word] for word, idx in sample] for sample in conv_pred]
-            hypothesis_text_conv =[" ".join(map(str,seq)) for seq in conv_pred_words]
+            conv_pred_words = [
+                [
+                    middle_dataset_relation.middle_dataset_relation_dict[word]
+                    for word, idx in sample
+                ]
+                for sample in conv_pred
+            ]
+            hypothesis_text_conv = [" ".join(map(str, seq)) for seq in conv_pred_words]
 
             reference_text_list.append(reference_text)
             hypothesis_text_list.append(hypothesis_text)
@@ -268,9 +276,11 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
             val_loss += loss.item()
             del loss
             del ret_dict
-   
+
     reference_text_list = [item for sublist in reference_text_list for item in sublist]
-    hypothesis_text_list = [item for sublist in hypothesis_text_list for item in sublist]
+    hypothesis_text_list = [
+        item for sublist in hypothesis_text_list for item in sublist
+    ]
     wer_score = wer(reference_text, hypothesis_text)
     val_loss /= num_batches
     print(f"Wer: {wer_score:.10f}, Avg loss: {val_loss:.10f}")
@@ -291,6 +301,8 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
         label_hyps = label_wer[label]["hyps"]
         label_wer_score = wer(label_refs, label_hyps)
         print(f"Label {label}: {label_wer_score:.10f} ({len(label_refs)} samples)")
+    logging.info(reference_text_list, "reference_text_list")
+    logging.info(hypothesis_text_list, "hypothesis_text_list")
     awer = wer(reference_text_list, hypothesis_text_list)
     print("Test performance: \n", f"Avg WER:{awer:>0.10f}\n")
     pred_times = np.array(pred_times)
@@ -300,6 +312,7 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
     print(f"Overall CER: {error_rate_cer}")
     print(f"Overall MER: {error_rate_mer}")
     return val_loss, wer_score
+
 
 def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
     size = len(dataloader.dataset)
@@ -380,13 +393,24 @@ def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
             tokens = tokens.tolist()
             reference_text = [" ".join(map(str, seq)) for seq in tokens]
 
-            pred_words = [[middle_dataset_relation.middle_dataset_relation_dict[word] for word, idx in sample] for sample in pred]
+            pred_words = [
+                [
+                    middle_dataset_relation.middle_dataset_relation_dict[word]
+                    for word, idx in sample
+                ]
+                for sample in pred
+            ]
             hypothesis_text = [" ".join(map(str, seq)) for seq in pred_words]
 
-            conv_pred_words = [[middle_dataset_relation.middle_dataset_relation_dict[word] for word, idx in sample] for sample in conv_pred]
-            hypothesis_text_conv =[" ".join(map(str,seq)) for seq in conv_pred_words]
-            
-            
+            conv_pred_words = [
+                [
+                    middle_dataset_relation.middle_dataset_relation_dict[word]
+                    for word, idx in sample
+                ]
+                for sample in conv_pred
+            ]
+            hypothesis_text_conv = [" ".join(map(str, seq)) for seq in conv_pred_words]
+
             reference_text_list.append(reference_text[0])
             hypothesis_text_list.append(hypothesis_text[0])
             hypothesis_text_conv_list.append(hypothesis_text_conv[0])

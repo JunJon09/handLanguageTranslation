@@ -1,6 +1,6 @@
 import numpy as np
 #dataset
-read_dataset_dir = "../hdf5/middle_dataset/"
+read_dataset_dir = "../hdf5/middle_dataset_30fps/"
 test_number = "003"
 val_number = "002"
 
@@ -24,7 +24,7 @@ USE_RHAND = np.arange(478+33+21, 478+33+21+21)
 
 use_features = ["x", "y", "z"]
 load_into_ram = True
-batch_size = 16
+batch_size = 8
 spatial_spatial_feature = 25 * 2
 
 #plots
