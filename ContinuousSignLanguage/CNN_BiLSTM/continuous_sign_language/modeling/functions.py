@@ -2,7 +2,6 @@ import CNN_BiLSTM.continuous_sign_language.features as features
 import CNN_BiLSTM.continuous_sign_language.config as config
 import CNN_BiLSTM.continuous_sign_language.dataset as dataset
 import CNN_BiLSTM.continuous_sign_language.modeling.middle_dataset_relation as middle_dataset_relation
-import CNN_BiLSTM.continuous_sign_language
 from torchvision.transforms import Compose
 import os
 from functools import partial
@@ -12,8 +11,6 @@ from torch import nn
 import numpy as np
 import torch
 from jiwer import wer, cer, mer
-from torch.cuda.amp import GradScaler
-import logging
 
 
 def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
@@ -52,7 +49,11 @@ def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
         load_into_ram=config.load_into_ram,
     )
 
-    feature_shape = (len(config.use_features), -1, len(use_landmarks))
+    feature_shape = (
+        len(config.use_features),
+        -1,
+        len(use_landmarks)
+    )
     token_shape = (-1,)
     num_workers = os.cpu_count()
     merge_fn = partial(
@@ -105,7 +106,6 @@ def train_loop(
     print("Start training.")
     start = time.perf_counter()
     tokens_causal_mask = None
-    scaler = GradScaler()
     for batch_idx, batch_sample in enumerate(dataloader):
         feature = batch_sample["feature"]
         spatial_feature = batch_sample["spatial_feature"]
@@ -124,12 +124,11 @@ def train_loop(
         tokens_pad_mask = tokens_pad_mask.to(device)
         frames = feature.shape[-2]
 
+        # Predict.
         input_lengths = feature_lengths
         target_lengths = target_lengths = torch.sum(tokens_pad_mask, dim=1)
         pred_start = time.perf_counter()
-        optimizer.zero_grad()
-
-        ret_dict = model.forward(
+        loss, log_probs = model.forward(
             src_feature=feature,
             spatial_feature=spatial_feature,
             tgt_feature=tokens,
@@ -139,8 +138,7 @@ def train_loop(
             target_lengths=target_lengths,
             mode="train",
         )
-        loss = model.criterion_calculation(ret_dict, tokens, target_lengths)
-
+        print("loss", loss)
         pred_end = time.perf_counter()
         pred_times.append([frames, pred_end - pred_start])
 
@@ -149,57 +147,50 @@ def train_loop(
             print("警告: NaNが検出されました。このバッチをスキップします")
             continue
 
-        if scaler is not None:
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-        else:
-            loss.backward()
-            optimizer.step()
-
+        # Back propagation.
+        optimizer.zero_grad()
+        loss.backward()
         # 勾配クリッピングの値を小さくして安定性を向上
-        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
+        optimizer.step()
 
         train_loss += loss.item()
-        del loss
-        del ret_dict
 
         # Print current loss per 100 steps.
-        # if batch_idx % 100 == 0:
-        #     loss = loss.item()
-        #     steps = batch_idx * len(feature)
-        #     # ロジットの分布を確認するための診断情報を追加
-        #     with torch.no_grad():
-        #         classifier_output = model.classifier.weight.clone()
-        #         blank_weight_norm = torch.norm(classifier_output[:, model.blank_id])
-        #         other_weight_norm = torch.norm(classifier_output) - blank_weight_norm
-        #         print(
-        #             f"ブランク重みのノルム: {blank_weight_norm.item():.4f}, 他の重みのノルム平均: {other_weight_norm.item()/(classifier_output.size(1)-1):.4f}"
-        #         )
+        if batch_idx % 100 == 0:
+            loss = loss.item()
+            steps = batch_idx * len(feature)
+            # ロジットの分布を確認するための診断情報を追加
+            with torch.no_grad():
+                classifier_output = model.classifier.weight.clone()
+                blank_weight_norm = torch.norm(classifier_output[:, model.blank_id])
+                other_weight_norm = torch.norm(classifier_output) - blank_weight_norm
+                print(
+                    f"ブランク重みのノルム: {blank_weight_norm.item():.4f}, 他の重みのノルム平均: {other_weight_norm.item()/(classifier_output.size(1)-1):.4f}"
+                )
 
-        #     print(f"loss:{loss:>7f} [{steps:>5d}/{size:>5d}]")
+            print(f"loss:{loss:>7f} [{steps:>5d}/{size:>5d}]")
 
     # 学習率スケジューラを更新
-    # if scheduler is not None:
-    #     scheduler.step()
-    #     logging.info(f"Learning rate updated to: {scheduler.get_last_lr()[0]:.6f}")
+    if scheduler is not None:
+        scheduler.step()
+        print(f"Learning rate updated to: {scheduler.get_last_lr()[0]:.6f}")
 
     print(f"Done. Time:{time.perf_counter()-start}")
     # Average loss.
     train_loss /= num_batches
     print("Training performance: \n", f"Avg loss:{train_loss:>8f}\n")
     pred_times = np.array(pred_times)
-    return train_loss
+    retval = (train_loss, pred_times) if return_pred_times else train_loss
+    return retval
 
 
 def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=None):
     num_batches = len(dataloader)
     val_loss = 0
 
+    # Collect prediction time.
     pred_times = []
-    hypothesis_text_list = []
-    hypothesis_text_conv_list = []
-    reference_text_list = []
 
     # Switch to evaluation mode.
     model.eval()
@@ -229,9 +220,8 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
             # Predict.
             input_lengths = feature_lengths
             target_lengths = target_lengths = torch.sum(tokens_pad_mask, dim=1)
-            logging.info(target_lengths)
             pred_start = time.perf_counter()
-            ret_dict = model.forward(
+            val_loss, log_probs = model.forward(
                 src_feature=feature,
                 spatial_feature=spatial_feature,
                 tgt_feature=tokens,
@@ -242,76 +232,24 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
                 mode="eval",
                 current_epoch=current_epoch,  # エポック情報の追加
             )
-            loss = model.criterion_calculation(ret_dict, tokens, target_lengths)
             pred_end = time.perf_counter()
             pred_times.append([frames, pred_end - pred_start])
-            pred = ret_dict["recognized_sents"]
-            conv_pred = ret_dict["conv_sents"]
+            print("val_loss", val_loss)
+            # Compute loss.
+            # Preds do not include <start>, so skip that of tokens.
 
             tokens = tokens.tolist()
-            reference_text = [" ".join(map(str, seq)) for seq in tokens]
-
-            pred_words = [
-                [
-                    middle_dataset_relation.middle_dataset_relation_dict[word]
-                    for word, idx in sample
-                ]
-                for sample in pred
-            ]
-            hypothesis_text = [" ".join(map(str, seq)) for seq in pred_words]
-
-            conv_pred_words = [
-                [
-                    middle_dataset_relation.middle_dataset_relation_dict[word]
-                    for word, idx in sample
-                ]
-                for sample in conv_pred
-            ]
-            hypothesis_text_conv = [" ".join(map(str, seq)) for seq in conv_pred_words]
-
-            reference_text_list.append(reference_text)
-            hypothesis_text_list.append(hypothesis_text)
-            hypothesis_text_conv_list.append(hypothesis_text_conv)
-
-            val_loss += loss.item()
-            del loss
-            del ret_dict
-
-    reference_text_list = [item for sublist in reference_text_list for item in sublist]
-    hypothesis_text_list = [
-        item for sublist in hypothesis_text_list for item in sublist
-    ]
-    wer_score = wer(reference_text, hypothesis_text)
+            # reference_text = [" ".join(map(str, seq)) for seq in tokens]
+            # hypothesis_text = [" ".join(map(str, seq)) for seq in log_probs]
+            # wer_score = wer(reference_text, hypothesis_text)
+            # print(f"Batch {batch_idx}: WER: {wer_score:.10f}")
+    print(f"Done. Time:{time.perf_counter()-start}")
+    # Average loss.
     val_loss /= num_batches
-    print(f"Wer: {wer_score:.10f}, Avg loss: {val_loss:.10f}")
+    print("Validation performance: \n", f"Avg loss:{val_loss:>8f}\n")
     pred_times = np.array(pred_times)
-    label_wer = {}
-    print(len(reference_text_list), "reference_text_list")
-    for ref, hyp in zip(reference_text_list, hypothesis_text_list):
-        ref_label = ref  # Get the first token as label
-
-        if ref_label not in label_wer:
-            label_wer[ref_label] = {"refs": [], "hyps": []}
-        label_wer[ref_label]["refs"].append(ref)
-        label_wer[ref_label]["hyps"].append(hyp)
-    # Calculate and print WER for each label
-    print("\nWER per label:")
-    for label in label_wer:
-        label_refs = label_wer[label]["refs"]
-        label_hyps = label_wer[label]["hyps"]
-        label_wer_score = wer(label_refs, label_hyps)
-        print(f"Label {label}: {label_wer_score:.10f} ({len(label_refs)} samples)")
-    logging.info(reference_text_list, "reference_text_list")
-    logging.info(hypothesis_text_list, "hypothesis_text_list")
-    awer = wer(reference_text_list, hypothesis_text_list)
-    print("Test performance: \n", f"Avg WER:{awer:>0.10f}\n")
-    pred_times = np.array(pred_times)
-    error_rate_cer = cer(reference_text_list, hypothesis_text_list)
-    error_rate_mer = mer(reference_text_list, hypothesis_text_list)
-    print(f"Overall WER: {awer}")
-    print(f"Overall CER: {error_rate_cer}")
-    print(f"Overall MER: {error_rate_mer}")
-    return val_loss, wer_score
+    retval = (val_loss, pred_times) if return_pred_times else val_loss
+    return retval
 
 
 def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
@@ -373,7 +311,7 @@ def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
 
             # Predict.
             pred_start = time.perf_counter()
-            ret_dict = model.forward(
+            pred, conv_pred = model.forward(
                 src_feature=feature,
                 spatial_feature=spatial_feature,
                 tgt_feature=tokens,
@@ -387,33 +325,20 @@ def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
 
             pred_end = time.perf_counter()
             pred_times.append([frames, pred_end - pred_start])
-            pred = ret_dict["recognized_sents"]
-            conv_pred = ret_dict["conv_sents"]
 
             tokens = tokens.tolist()
             reference_text = [" ".join(map(str, seq)) for seq in tokens]
 
-            pred_words = [
-                [
-                    middle_dataset_relation.middle_dataset_relation_dict[word]
-                    for word, idx in sample
-                ]
-                for sample in pred
-            ]
+            pred_words = [[middle_dataset_relation.middle_dataset_relation_dict[word] for word, idx in sample] for sample in pred]
             hypothesis_text = [" ".join(map(str, seq)) for seq in pred_words]
 
-            conv_pred_words = [
-                [
-                    middle_dataset_relation.middle_dataset_relation_dict[word]
-                    for word, idx in sample
-                ]
-                for sample in conv_pred
-            ]
-            hypothesis_text_conv = [" ".join(map(str, seq)) for seq in conv_pred_words]
-
+            conv_pred_words = [[middle_dataset_relation.middle_dataset_relation_dict[word] for word, idx in sample] for sample in conv_pred]
+            hypothesis_text_conv =[" ".join(map(str,seq)) for seq in conv_pred_words]
+            
+            
             reference_text_list.append(reference_text[0])
             hypothesis_text_list.append(hypothesis_text[0])
-            hypothesis_text_conv_list.append(hypothesis_text_conv[0])
+            hypothesis_text_conv_list.append(hypothesis_text_conv[0])   
     print(reference_text_list)
     print(hypothesis_text_list)
     print(f"Done. Time:{time.perf_counter()-start}")

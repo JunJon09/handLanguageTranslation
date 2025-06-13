@@ -161,7 +161,7 @@ def restore_middle_data(file, i, j):
     file_split = file.split("/")
     folder_name = file_split[4] #i_apple_like
     file_name = str((i+1) * 1000 + j)
-    csv_path = "csv/middle_dataset_30fps/" + folder_name + "/" + file_name + ".csv"
+    csv_path = "csv/middle_dataset/" + folder_name + "/" + file_name + ".csv"
     output_csv_path = "../../" + csv_path
     if folder_name in train_list:
         person_number = "001"

@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import copy
-import logging
 
 
 # 基本ブロックの定義
@@ -183,6 +182,7 @@ class ResNet1D(nn.Module):
             )
 
         layers = []
+        print(self.in_channels, "***************")
         layers.append(block(self.in_channels, out_channels, stride, downsample))
         self.in_channels = out_channels * block.expansion
         for _ in range(1, blocks):
@@ -1015,11 +1015,11 @@ class DualCNNWithCTC(nn.Module):
         self,
         skeleton_input_size,
         hand_feature_size,
-        skeleton_hidden_size=512,
-        hand_hidden_size=512,
-        fusion_hidden_size=1024,
+        skeleton_hidden_size=128,
+        hand_hidden_size=64,
+        fusion_hidden_size=192,
         dropout_rate=0.2,
-        conv_type=8,
+        conv_type=2,
         num_classes=64,
         blank_idx=0,
     ):
@@ -1027,6 +1027,7 @@ class DualCNNWithCTC(nn.Module):
 
         self.blank_id = blank_idx
         self.num_classes = num_classes
+
         # 骨格データと手の特徴量のための二つの1D-CNN
         self.dual_feature_cnn = DualFeatureTemporalConv(
             skeleton_input_size=skeleton_input_size,

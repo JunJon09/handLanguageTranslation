@@ -238,6 +238,11 @@ def merge_padded_batch(
     # 2番目の次元（特徴量次元）に沿ってすべての要素がパディング値かチェック
     spatial_feature_pad_mask = torch.all(spatial_feature_pad_mask, dim=-1)
     spatial_feature_pad_mask = torch.logical_not(spatial_feature_pad_mask)
+    print(
+        f"feature: {merged_feature.shape}, "
+        f"spatial_feature: {merged_spatial_feature.shape}, "
+        f"feature: {batch[0]['feature'].shape}"
+    )
     feature_lengths = torch.sum(feature_pad_mask, dim=1)
 
 

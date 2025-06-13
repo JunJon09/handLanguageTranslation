@@ -3,11 +3,9 @@ import CNN_BiLSTM.continuous_sign_language.modeling.functions as functions
 import CNN_BiLSTM.models.cnn_bilstm_model as model
 import CNN_BiLSTM.continuous_sign_language.modeling.config as model_config
 import CNN_BiLSTM.continuous_sign_language.plots as plot
-import CNN_BiLSTM.continuous_sign_language.init_log as init_log
 import torch
 import os
 import numpy as np
-
 
 def model_train():
     train_hdf5files, val_hdf5files, test_hdf5files, key2token = dataset.read_dataset()
@@ -52,28 +50,26 @@ def model_train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # より低い学習率で開始し、学習の安定性を向上
-    initial_lr = 0.0003  # 学習率を少し上げてクラス偏りからの脱却を促進
-    optimizer = torch.optim.Adam(
-        cnn_transformer.parameters(), lr=initial_lr, weight_decay=0.0001  # 正則化を追加
-    )
+    initial_lr = model_config.lr * 0.1  # 元の学習率の1/10
+    optimizer = torch.optim.Adam(cnn_transformer.parameters(), lr=initial_lr)
 
-    # より適応的なスケジューラーを使用
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    # 学習率スケジューラを追加
+    # ウォームアップ後に徐々に学習率を下げるスケジューラ
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer,
-        mode="min",  # 損失の最小化を監視
-        factor=0.5,  # 学習率を半分に
-        patience=5,  # 5エポック改善がなければ学習率を下げる
-        min_lr=1e-6,  # 最小学習率
-        verbose=True,
+        max_lr=model_config.lr,  # 最大学習率は元の設定値
+        steps_per_epoch=len(train_dataloader),
+        epochs=model_config.epochs,
+        pct_start=0.3,  # 学習率がピークに達するまでのエポック割合
+        div_factor=10.0,  # 初期学習率 = max_lr / div_factor
+        final_div_factor=100.0,  # 最終学習率 = max_lr / (div_factor * final_div_factor)
     )
 
     epochs = model_config.epochs
 
     train_losses = []
     val_losses = []
-    wer_scores = []
     min_loss = float("inf")
-    min_wer = float("inf")
     cnn_transformer.to(device)
 
     # plotsディレクトリを作成
@@ -84,7 +80,7 @@ def model_train():
     for epoch in range(epochs):
         print("-" * 80)
         print(f"Epoch {epoch+1}")
-        train_loss = functions.train_loop(
+        train_loss, train_times = functions.train_loop(
             dataloader=train_dataloader,
             model=cnn_transformer,
             optimizer=optimizer,
@@ -95,7 +91,7 @@ def model_train():
         train_losses.append(train_loss)
 
         if (epoch + 1) % model_config.eval_every_n_epochs == 0:
-            val_loss, wer = functions.val_loop(
+            val_loss, val_times = functions.val_loop(
                 dataloader=val_dataloader,
                 model=cnn_transformer,
                 device=device,
@@ -103,39 +99,19 @@ def model_train():
                 current_epoch=epoch + 1,
             )
             val_losses.append(val_loss)
-            wer_scores.append(wer)
-
-            # ReduceLROnPlateauスケジューラーにval_lossを渡す
-            scheduler.step(val_loss)
-
-            print(f"Validation Loss: {val_loss:.4f}, WER: {wer:.4f}")
-            print(f"Current Learning Rate: {optimizer.param_groups[0]['lr']:.6f}")
-
-            # if min_loss > val_loss:  # lossが最小なのを保存
-            #     functions.save_model(
-            #         save_path=model_config.model_save_path,
-            #         model_default_dict=cnn_transformer.state_dict(),
-            #         optimizer_dict=optimizer.state_dict(),
-            #         epoch=model_config.epochs,
-            #     )
-            #     min_loss = val_loss
-            if min_wer > wer:
+            if min_loss > val_loss:  # lossが最小なのを保存
                 functions.save_model(
                     save_path=model_config.model_save_path,
                     model_default_dict=cnn_transformer.state_dict(),
                     optimizer_dict=optimizer.state_dict(),
                     epoch=model_config.epochs,
                 )
-                min_wer = wer
-                print(f"Best model saved at epoch {epoch+1} with WER: {min_wer:.4f}")
+                min_loss = val_loss
+
     train_losses_array = np.array(train_losses)
     val_losses_array = np.array(val_losses)
-    wer_scores_array = np.array(wer_scores)
     print(
         f"Minimum validation loss:{val_losses_array.min()} at {np.argmin(val_losses_array)+1} epoch."
-    )
-    print(
-        f"Minimum WER:{wer_scores_array.min()} at {np.argmin(wer_scores_array)+1} epoch."
     )
 
     plot.train_loss_plot(train_losses_array)
@@ -143,12 +119,7 @@ def model_train():
     plot.train_val_loss_plot(
         train_losses_array, val_losses_array, model_config.eval_every_n_epochs
     )
-    plot.wer_plot(wer_scores_array, model_config.eval_every_n_epochs)
 
 
 if __name__ == "__main__":
-    logger, log_file = init_log.setup_logging(
-        log_dir="./CNN_BiLSTM/logs", console_output=False
-    )
-
     model_train()
