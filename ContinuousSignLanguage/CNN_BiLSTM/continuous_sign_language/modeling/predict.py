@@ -15,6 +15,7 @@ if __name__ == "__main__":
     out_channels = VOCAB
     save_path = model_config.model_save_path
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    
     cnn_transformer = model.CNNBiLSTMModel(
         in_channels=in_channels,
         kernel_size=model_config.kernel_size,
