@@ -67,9 +67,9 @@ class CNNBiLSTMModel(nn.Module):
         self.cnn_model = cnn.DualCNNWithCTC(
             skeleton_input_size=in_channels,
             hand_feature_size=50,
-            skeleton_hidden_size=128,
-            hand_hidden_size=128,
-            fusion_hidden_size=192,
+            skeleton_hidden_size=512,
+            hand_hidden_size=512,
+            fusion_hidden_size=1024,
             num_classes=num_classes,
             blank_idx=blank_idx,
         ).to("cpu")
@@ -85,17 +85,17 @@ class CNNBiLSTMModel(nn.Module):
 
         self.temporal_model = BiLSTM.BiLSTMLayer(
             rnn_type="LSTM",
-            input_size=192,
-            hidden_size=192,  # 隠れ層のサイズ
-            num_layers=2,
+            input_size=1024,
+            hidden_size=1024,  # 隠れ層のサイズ
+            num_layers=4,
             bidirectional=True,
         )
 
         # 相関学習モジュールを追加
-        self.spatial_correlation = SpatialCorrelationModule(input_dim=192)
+        self.spatial_correlation = SpatialCorrelationModule(input_dim=1024)
 
         # クラス分類用の線形層
-        self.classifier = nn.Linear(192, num_classes)
+        self.classifier = nn.Linear(1024, num_classes)
 
         # 重みの初期化を行う - コメントアウトを解除
         self._initialize_weights()
@@ -136,7 +136,7 @@ class CNNBiLSTMModel(nn.Module):
         self.decoder = decode.Decode(
             gloss_dict=gloss_dict,
             num_classes=num_classes,
-            search_mode="greedy_lm",  # 言語モデル統合型のグリーディサーチを使用
+            search_mode="greedy",  # 言語モデル統合型のグリーディサーチを使用
             blank_id=0,
         )
 

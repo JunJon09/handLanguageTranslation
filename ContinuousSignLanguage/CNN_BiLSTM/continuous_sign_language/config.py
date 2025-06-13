@@ -1,6 +1,6 @@
 import numpy as np
 #dataset
-read_dataset_dir = "../hdf5/middle_dataset/"
+read_dataset_dir = "../hdf5/middle_dataset_30fps/"
 test_number = "003"
 val_number = "002"
 
