@@ -47,21 +47,29 @@ if __name__ == "__main__":
     )
 
     # ========================================
-    # 🔍 可視化設定
+    # 🔍 可視化・分析設定
     # ========================================
     VISUALIZE_ATTENTION = True  # True: 可視化する, False: 可視化しない
+    GENERATE_CONFUSION_MATRIX = True  # True: 混同行列を生成, False: 生成しない
 
-    if VISUALIZE_ATTENTION:
-        print("🔍 Attention & CTC可視化モードでテストを実行します")
-        print("  - Attention重み可視化")
-        print("  - CTC Alignment Path可視化")
+    if VISUALIZE_ATTENTION or GENERATE_CONFUSION_MATRIX:
+        analysis_options = []
+        if VISUALIZE_ATTENTION:
+            analysis_options.append("Attention & CTC可視化")
+        if GENERATE_CONFUSION_MATRIX:
+            analysis_options.append("混同行列分析")
+            
+        print(f"🔍 拡張分析モードでテストを実行します")
+        print(f"  有効な分析: {', '.join(analysis_options)}")
+        
         wer, test_times = functions.test_loop(
             dataloader=test_dataloader,
             model=load_model,
             device=device,
             return_pred_times=True,
             blank_id=VOCAB - 1,
-            visualize_attention=True,  # 可視化を有効化
+            visualize_attention=VISUALIZE_ATTENTION,
+            generate_confusion_matrix=GENERATE_CONFUSION_MATRIX,
         )
     else:
         print("📊 通常モードでテストを実行します")
@@ -71,7 +79,8 @@ if __name__ == "__main__":
             device=device,
             return_pred_times=True,
             blank_id=VOCAB - 1,
-            visualize_attention=False,  # 可視化を無効化
+            visualize_attention=False,
+            generate_confusion_matrix=False,
         )
 
     print(f"ロードしたモデルのテスト精度: {wer}")

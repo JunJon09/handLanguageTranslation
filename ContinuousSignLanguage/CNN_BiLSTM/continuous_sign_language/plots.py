@@ -5,6 +5,12 @@ import CNN_BiLSTM.continuous_sign_language.config as config
 from collections import Counter
 import logging
 import torch
+import seaborn as sns
+from sklearn.metrics import confusion_matrix
+from sklearn.manifold import TSNE
+import umap
+import pandas as pd
+from matplotlib.colors import ListedColormap
 
 
 def train_loss_plot(losses_default):
@@ -797,3 +803,210 @@ def visualize_ctc_alignment_path(
     logging.info(f"CTC可視化完了: {success_count}/{total_plots} 個のグラフを生成")
 
     return success_count == total_plots
+
+
+# === 新しい分析・可視化機能 ===
+
+def plot_confusion_matrix(
+    y_true, y_pred, class_names=None, save_path=None, 
+    normalize=True, title="Confusion Matrix", figsize=(12, 10)
+):
+    """
+    混同行列を可視化
+    
+    Args:
+        y_true: 正解ラベルのリスト/配列
+        y_pred: 予測ラベルのリスト/配列  
+        class_names: クラス名のリスト (optional)
+        save_path: 保存パス
+        normalize: 正規化するかどうか
+        title: グラフのタイトル
+        figsize: 図のサイズ
+    """
+    try:
+        # 必要なライブラリをここでインポート
+        try:
+            import seaborn as sns
+            from sklearn.metrics import confusion_matrix
+            import pandas as pd
+        except ImportError as e:
+            logging.error(f"必要なライブラリがインストールされていません: {e}")
+            logging.info("以下のコマンドでインストールしてください:")
+            logging.info("pip install seaborn scikit-learn pandas")
+            return False
+            
+        # 混同行列を計算
+        cm = confusion_matrix(y_true, y_pred)
+        
+        if normalize:
+            # 正規化 (行ごとに正規化 - 各クラスの正解数で割る)
+            cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+            cm_normalized = np.nan_to_num(cm_normalized)  # NaNを0に変換
+        else:
+            cm_normalized = cm
+            
+        # 図を作成
+        plt.figure(figsize=figsize)
+        
+        # クラス名の設定
+        if class_names is None:
+            class_names = [f'Class {i}' for i in range(len(cm))]
+        
+        # ヒートマップを描画
+        if normalize:
+            sns.heatmap(
+                cm_normalized, 
+                annot=True, 
+                fmt='.3f',
+                cmap='Blues',
+                xticklabels=class_names,
+                yticklabels=class_names,
+                cbar_kws={'label': 'Normalized Frequency'}
+            )
+            plt.title(f'{title} (Normalized)')
+        else:
+            sns.heatmap(
+                cm, 
+                annot=True, 
+                fmt='d',
+                cmap='Blues',
+                xticklabels=class_names,
+                yticklabels=class_names,
+                cbar_kws={'label': 'Count'}
+            )
+            plt.title(f'{title} (Raw Counts)')
+            
+        plt.xlabel('Predicted Label', fontsize=12)
+        plt.ylabel('True Label', fontsize=12)
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+        
+        # 統計情報を追加
+        accuracy = np.trace(cm) / np.sum(cm)
+        plt.figtext(0.02, 0.02, f'Overall Accuracy: {accuracy:.3f}', 
+                   fontsize=10, bbox=dict(facecolor='white', alpha=0.8))
+        
+        plt.tight_layout()
+        
+        if save_path is None:
+            save_path = os.path.join(config.plot_save_dir, "confusion_matrix.png")
+            
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        logging.info(f"混同行列を保存: {save_path}")
+        
+        # 詳細な分析結果をログに出力
+        log_confusion_analysis(cm, class_names, accuracy)
+        
+        return True
+        
+    except Exception as e:
+        logging.error(f"混同行列生成でエラー: {e}")
+        return False
+
+
+def log_confusion_analysis(cm, class_names, overall_accuracy):
+    """
+    混同行列の詳細分析をログに出力
+    
+    Args:
+        cm: 混同行列
+        class_names: クラス名
+        overall_accuracy: 全体精度
+    """
+    try:
+        logging.info("=== 混同行列分析結果 ===")
+        logging.info(f"全体精度: {overall_accuracy:.3f}")
+        
+        # クラスごとの精度・再現率・F1スコアを計算
+        num_classes = len(cm)
+        
+        for i in range(num_classes):
+            # True Positive, False Positive, False Negative
+            tp = cm[i, i]
+            fp = cm[:, i].sum() - tp
+            fn = cm[i, :].sum() - tp
+            
+            # 精度 (Precision)
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            
+            # 再現率 (Recall)
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            
+            # F1スコア
+            f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+            
+            class_name = class_names[i] if i < len(class_names) else f"Class_{i}"
+            logging.info(f"{class_name}: Precision={precision:.3f}, Recall={recall:.3f}, F1={f1:.3f}")
+        
+        # 最も間違えやすいペアを特定
+        logging.info("\n=== 主な誤分類パターン ===")
+        confusion_pairs = []
+        
+        for i in range(num_classes):
+            for j in range(num_classes):
+                if i != j and cm[i, j] > 0:
+                    true_class = class_names[i] if i < len(class_names) else f"Class_{i}"
+                    pred_class = class_names[j] if j < len(class_names) else f"Class_{j}"
+                    confusion_pairs.append((cm[i, j], true_class, pred_class))
+        
+        # 間違いの多い順にソート
+        confusion_pairs.sort(reverse=True)
+        
+        # 上位5つの誤分類パターンを表示
+        for count, true_cls, pred_cls in confusion_pairs[:5]:
+            logging.info(f"{true_cls} -> {pred_cls}: {count}回")
+            
+    except Exception as e:
+        logging.error(f"混同行列分析でエラー: {e}")
+
+
+def analyze_word_level_confusion(predictions, ground_truth, vocab_dict=None, save_path=None):
+    """
+    単語レベルでの混同行列分析
+    
+    Args:
+        predictions: 予測結果のリスト (単語IDまたは単語文字列)
+        ground_truth: 正解ラベルのリスト
+        vocab_dict: 語彙辞書 (ID -> 単語名)
+        save_path: 保存パス
+    """
+    try:
+        logging.info("単語レベル混同行列分析を開始")
+        
+        # 語彙辞書から単語名を取得
+        if vocab_dict:
+            unique_labels = sorted(set(ground_truth + predictions))
+            class_names = []
+            for label in unique_labels:
+                if label in vocab_dict:
+                    # 単語名を短縮表示 (長すぎる場合)
+                    word_name = vocab_dict[label]
+                    if len(word_name) > 10:
+                        word_name = word_name[:8] + ".."
+                    class_names.append(f"{label}:{word_name}")
+                else:
+                    class_names.append(f"ID_{label}")
+        else:
+            class_names = None
+            
+        # 混同行列を生成
+        success = plot_confusion_matrix(
+            y_true=ground_truth,
+            y_pred=predictions,
+            class_names=class_names,
+            save_path=save_path,
+            normalize=True,
+            title="Word-Level Confusion Matrix",
+            figsize=(15, 12)
+        )
+        
+        if success:
+            logging.info("単語レベル混同行列分析が完了")
+        
+        return success
+        
+    except Exception as e:
+        logging.error(f"単語レベル混同行列分析でエラー: {e}")
+        return False

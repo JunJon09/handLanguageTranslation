@@ -262,22 +262,49 @@ def test_loop(
     return_pred_times=False,
     blank_id=100,
     visualize_attention=False,
+    generate_confusion_matrix=False,
 ):
+    """
+    テストループ関数 - 予測精度評価と可視化・分析機能を統合
+    
+    Args:
+        dataloader: テストデータローダー
+        model: 学習済みモデル
+        device: 計算デバイス ('cuda' or 'cpu')
+        return_pred_times: 予測時間も返すかどうか
+        blank_id: ブランクトークンのID
+        visualize_attention: Attention可視化を有効にするか
+        generate_confusion_matrix: 混同行列を生成するか
+    
+    Returns:
+        float or tuple: WER値、または (WER, 予測時間) のタプル
+        
+    Note:
+        以下の機能が統合されています:
+        - 基本的な予測精度評価 (WER, CER, MER)
+        - Attention重み可視化
+        - CTC Alignment Path可視化
+        - 混同行列分析
+    """
 
     size = len(dataloader.dataset)
     hypothesis_text_list = []
     hypothesis_text_conv_list = []
     reference_text_list = []
+    
+    # 混同行列用のデータ収集
+    if generate_confusion_matrix:
+        prediction_labels = []
+        ground_truth_labels = []
+        logging.info("混同行列生成モードを有効化")
 
     # Attention可視化の設定
+    max_visualize_samples = 10  # 最大可視化サンプル数
+    output_dir, visualize_count = setup_visualization_environment(
+        visualize_attention, max_visualize_samples
+    )
     if visualize_attention:
-        output_dir = os.path.join(config.plot_save_dir, "attention_test")
-        os.makedirs(output_dir, exist_ok=True)
         model.enable_attention_visualization()
-        visualize_count = 0
-        max_visualize_samples = 10  # 最大可視化サンプル数
-        logging.info("Attention可視化を有効化")
-        logging.info(f"出力ディレクトリ: {output_dir}")
 
     # Collect prediction time.
     pred_times = []
@@ -370,16 +397,7 @@ def test_loop(
 
             # Attention & CTC可視化処理
             if visualize_attention and visualize_count < max_visualize_samples:
-                success_attention = visualize_attention_weights(
-                    model=model,
-                    batch_idx=batch_idx,
-                    reference_text=reference_text,
-                    hypothesis_text=hypothesis_text,
-                    output_dir=output_dir,
-                )
-
-                # CTC Alignment Path可視化
-                success_ctc = visualize_ctc_alignment(
+                success_attention, success_ctc = process_attention_visualization(
                     model=model,
                     batch_idx=batch_idx,
                     feature=feature,
@@ -391,6 +409,7 @@ def test_loop(
                     reference_text=reference_text,
                     hypothesis_text=hypothesis_text,
                     output_dir=output_dir,
+                    max_samples=max_visualize_samples
                 )
 
                 if success_attention or success_ctc:
@@ -402,47 +421,41 @@ def test_loop(
             reference_text_list.append(reference_text[0])
             hypothesis_text_list.append(hypothesis_text[0])
             hypothesis_text_conv_list.append(hypothesis_text_conv[0])
+            
+            # 混同行列用のラベル収集
+            if generate_confusion_matrix:
+                # 単語レベルでの予測と正解を収集
+                ref_words, pred_words = collect_prediction_labels(
+                    reference_text[0], hypothesis_text[0]
+                )
+                ground_truth_labels.extend(ref_words)
+                prediction_labels.extend(pred_words)
 
     logging.info(f"参照文リスト: {reference_text_list}")
     logging.info(f"予測文リスト: {hypothesis_text_list}")
     logging.info(f"テスト完了. 時間:{time.perf_counter()-start:.2f}秒")
 
-    # Average WER.
-    # Create a dictionary to store WER per label
-    label_wer = {}
-    for ref, hyp in zip(reference_text_list, hypothesis_text_list):
-        ref_label = ref  # Get the first token as label
-
-        if ref_label not in label_wer:
-            label_wer[ref_label] = {"refs": [], "hyps": []}
-        label_wer[ref_label]["refs"].append(ref)
-        label_wer[ref_label]["hyps"].append(hyp)
-    # Calculate and print WER for each label
-    logging.info("WER per label:")
-    for label in label_wer:
-        label_refs = label_wer[label]["refs"]
-        label_hyps = label_wer[label]["hyps"]
-        label_wer_score = wer(label_refs, label_hyps)
-        logging.info(
-            f"Label {label}: {label_wer_score:.10f} ({len(label_refs)} samples)"
-        )
-    awer = wer(reference_text_list, hypothesis_text_list)
-    logging.info(f"Test performance - Avg WER: {awer:>0.10f}")
+    # WER評価指標の計算
+    wer_metrics = calculate_wer_metrics(reference_text_list, hypothesis_text_list)
+    awer = wer_metrics["awer"] if wer_metrics else 0.0
     pred_times = np.array(pred_times)
-    error_rate_cer = cer(reference_text_list, hypothesis_text_list)
-    error_rate_mer = mer(reference_text_list, hypothesis_text_list)
-    logging.info(f"Overall WER: {awer}")
-    logging.info(f"Overall CER: {error_rate_cer}")
-    logging.info(f"Overall MER: {error_rate_mer}")
 
     # Attention & CTC可視化の後処理
-    if visualize_attention:
-        model.disable_attention_visualization()
-        logging.info("可視化処理完了")
-        logging.info(f"可視化サンプル数: {visualize_count}/{max_visualize_samples}")
-        logging.info(f"出力ディレクトリ: {output_dir}")
-        logging.info("  - Attention重み可視化")
-        logging.info("  - CTC Alignment Path可視化")
+    finalize_visualization(
+        model=model,
+        visualize_attention=visualize_attention,
+        visualize_count=visualize_count,
+        max_visualize_samples=max_visualize_samples,
+        output_dir=output_dir
+    )
+    
+    # 混同行列の生成
+    if generate_confusion_matrix:
+        success = generate_confusion_matrix_analysis(
+            prediction_labels=prediction_labels,
+            ground_truth_labels=ground_truth_labels,
+            save_dir=config.plot_save_dir
+        )
 
     retval = (awer, pred_times) if return_pred_times else awer
     return retval
@@ -665,3 +678,244 @@ def visualize_ctc_alignment(
     except Exception as e:
         logging.error(f"CTC可視化でエラー: {e}")
         return False
+
+
+def generate_confusion_matrix_analysis(prediction_labels, ground_truth_labels, save_dir=None):
+    """
+    混同行列分析を実行する独立関数
+    
+    Args:
+        prediction_labels: 予測ラベルのリスト
+        ground_truth_labels: 正解ラベルのリスト  
+        save_dir: 保存ディレクトリ (None の場合は config.plot_save_dir を使用)
+    
+    Returns:
+        bool: 成功したかどうか
+    """
+    try:
+        if len(prediction_labels) == 0 or len(ground_truth_labels) == 0:
+            logging.warning("混同行列生成用のデータが不足しています")
+            return False
+            
+        if len(prediction_labels) != len(ground_truth_labels):
+            logging.warning(f"予測ラベル数({len(prediction_labels)})と正解ラベル数({len(ground_truth_labels)})が一致しません")
+            return False
+            
+        logging.info(f"混同行列生成開始 - 総サンプル数: {len(prediction_labels)}")
+        
+        # 語彙辞書を作成（単語名をそのまま使用）
+        unique_words = sorted(set(ground_truth_labels + prediction_labels))
+        vocab_dict = {word: word for word in unique_words}
+        
+        # 保存パスを決定
+        if save_dir is None:
+            save_dir = config.plot_save_dir
+        save_path = os.path.join(save_dir, "word_level_confusion_matrix.png")
+        
+        # 混同行列を生成
+        from CNN_BiLSTM.continuous_sign_language.plots import analyze_word_level_confusion
+        success = analyze_word_level_confusion(
+            predictions=prediction_labels,
+            ground_truth=ground_truth_labels,  
+            vocab_dict=vocab_dict,
+            save_path=save_path
+        )
+        
+        if success:
+            logging.info("混同行列の生成が完了しました")
+            logging.info(f"保存先: {save_path}")
+        else:
+            logging.warning("混同行列の生成に失敗しました")
+            
+        return success
+        
+    except Exception as e:
+        logging.error(f"混同行列分析でエラー: {e}")
+        return False
+
+
+def collect_prediction_labels(reference_text, hypothesis_text):
+    """
+    予測結果から単語レベルのラベルを収集する関数
+    
+    Args:
+        reference_text: 正解テキスト
+        hypothesis_text: 予測テキスト
+    
+    Returns:
+        tuple: (ground_truth_words, prediction_words)
+    """
+    try:
+        # 単語レベルでの予測と正解を収集
+        ref_words = reference_text.split()
+        pred_words = hypothesis_text.split()
+        
+        # 単語ごとにラベルを収集（長さが異なる場合は短い方に合わせる）
+        min_len = min(len(ref_words), len(pred_words))
+        
+        ground_truth_words = []
+        prediction_words = []
+        
+        for i in range(min_len):
+            ground_truth_words.append(ref_words[i])
+            prediction_words.append(pred_words[i])
+            
+        return ground_truth_words, prediction_words
+        
+    except Exception as e:
+        logging.error(f"ラベル収集でエラー: {e}")
+        return [], []
+
+
+def process_attention_visualization(
+    model, batch_idx, feature, spatial_feature, tokens, feature_pad_mask,
+    input_lengths, target_lengths, reference_text, hypothesis_text, 
+    output_dir, max_samples=10
+):
+    """
+    Attention可視化処理を実行する独立関数
+    
+    Args:
+        model: モデルインスタンス
+        batch_idx: バッチインデックス
+        feature: 入力特徴量
+        spatial_feature: 空間特徴量
+        tokens: トークン
+        feature_pad_mask: パディングマスク
+        input_lengths: 入力長
+        target_lengths: ターゲット長
+        reference_text: 正解テキスト
+        hypothesis_text: 予測テキスト
+        output_dir: 出力ディレクトリ
+        max_samples: 最大可視化サンプル数
+    
+    Returns:
+        tuple: (success_attention, success_ctc)
+    """
+    try:
+        success_attention = visualize_attention_weights(
+            model=model,
+            batch_idx=batch_idx,
+            reference_text=reference_text,
+            hypothesis_text=hypothesis_text,
+            output_dir=output_dir,
+        )
+
+        # CTC Alignment Path可視化
+        success_ctc = visualize_ctc_alignment(
+            model=model,
+            batch_idx=batch_idx,
+            feature=feature,  
+            spatial_feature=spatial_feature,
+            tokens=tokens,
+            feature_pad_mask=feature_pad_mask,
+            input_lengths=input_lengths,
+            target_lengths=target_lengths,
+            reference_text=reference_text,
+            hypothesis_text=hypothesis_text,
+            output_dir=output_dir,
+        )
+        
+        return success_attention, success_ctc
+        
+    except Exception as e:
+        logging.error(f"Attention可視化処理でエラー: {e}")
+        return False, False
+
+
+def setup_visualization_environment(visualize_attention, max_visualize_samples=10):
+    """
+    可視化環境をセットアップする関数
+    
+    Args:
+        visualize_attention: 可視化を有効にするかどうか
+        max_visualize_samples: 最大可視化サンプル数
+    
+    Returns:
+        tuple: (output_dir, visualize_count) または (None, 0)
+    """
+    if visualize_attention:
+        output_dir = os.path.join(config.plot_save_dir, "attention_test")
+        os.makedirs(output_dir, exist_ok=True)
+        visualize_count = 0
+        logging.info("Attention可視化を有効化")
+        logging.info(f"出力ディレクトリ: {output_dir}")
+        logging.info(f"最大可視化サンプル数: {max_visualize_samples}")
+        return output_dir, visualize_count
+    else:
+        return None, 0
+
+
+def finalize_visualization(model, visualize_attention, visualize_count, max_visualize_samples, output_dir):
+    """
+    可視化処理の後処理を行う関数
+    
+    Args:
+        model: モデルインスタンス
+        visualize_attention: 可視化が有効だったかどうか
+        visualize_count: 実際に可視化したサンプル数
+        max_visualize_samples: 最大可視化サンプル数
+        output_dir: 出力ディレクトリ
+    """
+    if visualize_attention:
+        model.disable_attention_visualization()
+        logging.info("可視化処理完了")
+        logging.info(f"可視化サンプル数: {visualize_count}/{max_visualize_samples}")
+        logging.info(f"出力ディレクトリ: {output_dir}")
+        logging.info("  - Attention重み可視化")
+        logging.info("  - CTC Alignment Path可視化")
+
+
+def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
+    """
+    WER関連の評価指標を計算する関数
+    
+    Args:
+        reference_text_list: 正解テキストのリスト
+        hypothesis_text_list: 予測テキストのリスト
+    
+    Returns:
+        dict: 各種評価指標の辞書
+    """
+    try:
+        # ラベル別WERの計算
+        label_wer = {}
+        for ref, hyp in zip(reference_text_list, hypothesis_text_list):
+            ref_label = ref  # Get the first token as label
+
+            if ref_label not in label_wer:
+                label_wer[ref_label] = {"refs": [], "hyps": []}
+            label_wer[ref_label]["refs"].append(ref)
+            label_wer[ref_label]["hyps"].append(hyp)
+
+        # Calculate and log WER for each label
+        logging.info("WER per label:")
+        for label in label_wer:
+            label_refs = label_wer[label]["refs"]
+            label_hyps = label_wer[label]["hyps"]
+            label_wer_score = wer(label_refs, label_hyps)
+            logging.info(
+                f"Label {label}: {label_wer_score:.10f} ({len(label_refs)} samples)"
+            )
+
+        # 全体的な評価指標を計算
+        awer = wer(reference_text_list, hypothesis_text_list)
+        error_rate_cer = cer(reference_text_list, hypothesis_text_list)
+        error_rate_mer = mer(reference_text_list, hypothesis_text_list)
+        
+        # ログ出力
+        logging.info(f"Test performance - Avg WER: {awer:>0.10f}")
+        logging.info(f"Overall WER: {awer}")
+        logging.info(f"Overall CER: {error_rate_cer}")
+        logging.info(f"Overall MER: {error_rate_mer}")
+        
+        return {
+            "awer": awer,
+            "cer": error_rate_cer,
+            "mer": error_rate_mer,
+            "label_wer": label_wer
+        }
+        
+    except Exception as e:
+        logging.error(f"WER計算でエラー: {e}")
+        return None
