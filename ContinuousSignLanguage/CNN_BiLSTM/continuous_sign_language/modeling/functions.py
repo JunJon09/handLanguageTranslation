@@ -2,6 +2,12 @@ import CNN_BiLSTM.continuous_sign_language.features as features
 import CNN_BiLSTM.continuous_sign_language.config as config
 import CNN_BiLSTM.continuous_sign_language.dataset as dataset
 import CNN_BiLSTM.continuous_sign_language.modeling.middle_dataset_relation as middle_dataset_relation
+from CNN_BiLSTM.continuous_sign_language.plots import (
+    plot_attention_matrix,
+    plot_attention_statistics,
+    plot_attention_focus_over_time,
+    visualize_ctc_alignment_path,
+)
 from torchvision.transforms import Compose
 import os
 from functools import partial
@@ -11,6 +17,7 @@ from torch import nn
 import numpy as np
 import torch
 from jiwer import wer, cer, mer
+import logging
 
 
 def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
@@ -49,11 +56,7 @@ def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
         load_into_ram=config.load_into_ram,
     )
 
-    feature_shape = (
-        len(config.use_features),
-        -1,
-        len(use_landmarks)
-    )
+    feature_shape = (len(config.use_features), -1, len(use_landmarks))
     token_shape = (-1,)
     num_workers = os.cpu_count()
     merge_fn = partial(
@@ -252,18 +255,36 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
     return retval
 
 
-def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
+def test_loop(
+    dataloader,
+    model,
+    device,
+    return_pred_times=False,
+    blank_id=100,
+    visualize_attention=False,
+):
+
     size = len(dataloader.dataset)
     hypothesis_text_list = []
     hypothesis_text_conv_list = []
     reference_text_list = []
+
+    # Attention可視化の設定
+    if visualize_attention:
+        output_dir = os.path.join(config.plot_save_dir, "attention_test")
+        os.makedirs(output_dir, exist_ok=True)
+        model.enable_attention_visualization()
+        visualize_count = 0
+        max_visualize_samples = 10  # 最大可視化サンプル数
+        logging.info("Attention可視化を有効化")
+        logging.info(f"出力ディレクトリ: {output_dir}")
 
     # Collect prediction time.
     pred_times = []
     # Switch to evaluation mode.
     model.eval()
     # Main loop.
-    print("Start test.")
+    logging.info("Start test.")
     start = time.perf_counter()
     with torch.no_grad():
         for batch_idx, batch_sample in enumerate(dataloader):
@@ -329,19 +350,62 @@ def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
             tokens = tokens.tolist()
             reference_text = [" ".join(map(str, seq)) for seq in tokens]
 
-            pred_words = [[middle_dataset_relation.middle_dataset_relation_dict[word] for word, idx in sample] for sample in pred]
+            pred_words = [
+                [
+                    middle_dataset_relation.middle_dataset_relation_dict[word]
+                    for word, idx in sample
+                ]
+                for sample in pred
+            ]
             hypothesis_text = [" ".join(map(str, seq)) for seq in pred_words]
 
-            conv_pred_words = [[middle_dataset_relation.middle_dataset_relation_dict[word] for word, idx in sample] for sample in conv_pred]
-            hypothesis_text_conv =[" ".join(map(str,seq)) for seq in conv_pred_words]
-            
-            
+            conv_pred_words = [
+                [
+                    middle_dataset_relation.middle_dataset_relation_dict[word]
+                    for word, idx in sample
+                ]
+                for sample in conv_pred
+            ]
+            hypothesis_text_conv = [" ".join(map(str, seq)) for seq in conv_pred_words]
+
+            # Attention & CTC可視化処理
+            if visualize_attention and visualize_count < max_visualize_samples:
+                success_attention = visualize_attention_weights(
+                    model=model,
+                    batch_idx=batch_idx,
+                    reference_text=reference_text,
+                    hypothesis_text=hypothesis_text,
+                    output_dir=output_dir,
+                )
+
+                # CTC Alignment Path可視化
+                success_ctc = visualize_ctc_alignment(
+                    model=model,
+                    batch_idx=batch_idx,
+                    feature=feature,
+                    spatial_feature=spatial_feature,
+                    tokens=tokens,
+                    feature_pad_mask=feature_pad_mask,
+                    input_lengths=input_lengths,
+                    target_lengths=target_lengths,
+                    reference_text=reference_text,
+                    hypothesis_text=hypothesis_text,
+                    output_dir=output_dir,
+                )
+
+                if success_attention or success_ctc:
+                    visualize_count += 1
+                    logging.info(
+                        f"可視化完了 (Attention: {'成功' if success_attention else '失敗'}, CTC: {'成功' if success_ctc else '失敗'})"
+                    )
+
             reference_text_list.append(reference_text[0])
             hypothesis_text_list.append(hypothesis_text[0])
-            hypothesis_text_conv_list.append(hypothesis_text_conv[0])   
-    print(reference_text_list)
-    print(hypothesis_text_list)
-    print(f"Done. Time:{time.perf_counter()-start}")
+            hypothesis_text_conv_list.append(hypothesis_text_conv[0])
+
+    logging.info(f"参照文リスト: {reference_text_list}")
+    logging.info(f"予測文リスト: {hypothesis_text_list}")
+    logging.info(f"テスト完了. 時間:{time.perf_counter()-start:.2f}秒")
 
     # Average WER.
     # Create a dictionary to store WER per label
@@ -354,20 +418,32 @@ def test_loop(dataloader, model, device, return_pred_times=False, blank_id=100):
         label_wer[ref_label]["refs"].append(ref)
         label_wer[ref_label]["hyps"].append(hyp)
     # Calculate and print WER for each label
-    print("\nWER per label:")
+    logging.info("WER per label:")
     for label in label_wer:
         label_refs = label_wer[label]["refs"]
         label_hyps = label_wer[label]["hyps"]
         label_wer_score = wer(label_refs, label_hyps)
-        print(f"Label {label}: {label_wer_score:.10f} ({len(label_refs)} samples)")
+        logging.info(
+            f"Label {label}: {label_wer_score:.10f} ({len(label_refs)} samples)"
+        )
     awer = wer(reference_text_list, hypothesis_text_list)
-    print("Test performance: \n", f"Avg WER:{awer:>0.10f}\n")
+    logging.info(f"Test performance - Avg WER: {awer:>0.10f}")
     pred_times = np.array(pred_times)
     error_rate_cer = cer(reference_text_list, hypothesis_text_list)
     error_rate_mer = mer(reference_text_list, hypothesis_text_list)
-    print(f"Overall WER: {awer}")
-    print(f"Overall CER: {error_rate_cer}")
-    print(f"Overall MER: {error_rate_mer}")
+    logging.info(f"Overall WER: {awer}")
+    logging.info(f"Overall CER: {error_rate_cer}")
+    logging.info(f"Overall MER: {error_rate_mer}")
+
+    # Attention & CTC可視化の後処理
+    if visualize_attention:
+        model.disable_attention_visualization()
+        logging.info("可視化処理完了")
+        logging.info(f"可視化サンプル数: {visualize_count}/{max_visualize_samples}")
+        logging.info(f"出力ディレクトリ: {output_dir}")
+        logging.info("  - Attention重み可視化")
+        logging.info("  - CTC Alignment Path可視化")
+
     retval = (awer, pred_times) if return_pred_times else awer
     return retval
 
@@ -382,7 +458,7 @@ def save_model(save_path, model_default_dict, optimizer_dict, epoch):
         save_path,
     )
 
-    print(f"モデルとオプティマイザの状態を {save_path} に保存しました。")
+    logging.info(f"モデルとオプティマイザの状態を {save_path} に保存しました。")
 
 
 def load_model(model, save_path: str, device: str = "cpu"):
@@ -398,6 +474,194 @@ def load_model(model, save_path: str, device: str = "cpu"):
 
     epoch_loaded = checkpoint.get("epoch", None)
 
-    print(f"エポック {epoch_loaded} までのモデルをロードしました。")
+    logging.info(f"エポック {epoch_loaded} までのモデルをロードしました。")
 
     return model, optimizer_loaded, epoch_loaded
+
+
+def visualize_attention_weights(
+    model, batch_idx, reference_text, hypothesis_text, output_dir
+):
+    """
+    Attention重みの可視化処理を実行
+
+    Args:
+        model: 学習済みモデル
+        batch_idx: バッチインデックス
+        reference_text: 参照文のリスト
+        hypothesis_text: 予測文のリスト
+        output_dir: 出力ディレクトリ
+
+    Returns:
+        bool: 可視化が成功したかどうか
+    """
+    try:
+        attention_weights = model.get_attention_weights()
+
+        if attention_weights is None:
+            logging.warning(f"Batch {batch_idx}: Attention重みが取得できませんでした")
+            return False
+
+        # 予測結果の評価
+        ref_text = reference_text[0]
+        hyp_text = hypothesis_text[0]
+        is_correct = ref_text == hyp_text
+
+        # ファイル名の設定
+        sample_name = f"batch_{batch_idx}_sample_0"
+        status = "correct" if is_correct else "incorrect"
+
+        logging.info(f"Attention可視化開始: {sample_name} ({status})")
+
+        # 1. Attentionマトリックス
+        plot_attention_matrix(
+            attention_weights,
+            sample_idx=0,
+            save_path=os.path.join(
+                output_dir, f"attention_matrix_{sample_name}_{status}.png"
+            ),
+            title=f"Attention Matrix ({status})",
+        )
+
+        # 2. 統計情報
+        plot_attention_statistics(
+            attention_weights[0:1],
+            save_path=os.path.join(
+                output_dir, f"attention_stats_{sample_name}_{status}.png"
+            ),
+        )
+
+        # 3. 時間的変化
+        plot_attention_focus_over_time(
+            attention_weights[0:1],
+            save_path=os.path.join(
+                output_dir, f"attention_focus_{sample_name}_{status}.png"
+            ),
+        )
+
+        logging.info(f"可視化完了 - 参照文: {ref_text}")
+        logging.info(f"可視化完了 - 予測文: {hyp_text}")
+
+        return True
+
+    except Exception as e:
+        logging.error(f"Attention可視化でエラー: {e}")
+        return False
+
+
+def visualize_ctc_alignment(
+    model,
+    batch_idx,
+    feature,
+    spatial_feature,
+    tokens,
+    feature_pad_mask,
+    input_lengths,
+    target_lengths,
+    reference_text,
+    hypothesis_text,
+    output_dir,
+):
+    """
+    CTC Alignment Pathの可視化処理を実行
+
+    Args:
+        model: 学習済みモデル
+        batch_idx: バッチインデックス
+        feature: 特徴量
+        spatial_feature: 空間特徴量
+        tokens: トークン
+        feature_pad_mask: パディングマスク
+        input_lengths: 入力長
+        target_lengths: ターゲット長
+        reference_text: 参照文のリスト
+        hypothesis_text: 予測文のリスト
+        output_dir: 出力ディレクトリ
+
+    Returns:
+        bool: 可視化が成功したかどうか
+    """
+    try:
+        # tokensを元のtensor形式に準備
+        original_tokens = tokens
+        if isinstance(tokens, list):
+            original_tokens = torch.tensor(tokens, device=feature.device)
+
+        # evalモードでCTC出力を取得
+        with torch.no_grad():
+            loss, sequence_logits = model.forward(
+                src_feature=feature,
+                spatial_feature=spatial_feature,
+                tgt_feature=original_tokens,
+                src_causal_mask=None,
+                src_padding_mask=feature_pad_mask,
+                input_lengths=input_lengths,
+                target_lengths=target_lengths,
+                mode="eval",
+                blank_id=0,
+            )
+            ctc_log_probs = sequence_logits.log_softmax(-1)  # (T, B, C)
+
+        if ctc_log_probs is None:
+            logging.warning(f"Batch {batch_idx}: CTC出力が取得できませんでした")
+            return False
+
+        # 予測結果の評価
+        ref_text = reference_text[0]
+        hyp_text = hypothesis_text[0]
+        is_correct = ref_text == hyp_text
+
+        # ファイル名の設定
+        sample_name = f"batch_{batch_idx}_sample_0"
+        status = "correct" if is_correct else "incorrect"
+
+        logging.info(f"CTC可視化開始: {sample_name} ({status})")
+
+        # CTC可視化用のディレクトリを作成
+        ctc_output_dir = os.path.join(output_dir, f"ctc_{sample_name}_{status}")
+        os.makedirs(ctc_output_dir, exist_ok=True)
+
+        # デコード結果を整理（可視化用）
+        # hypothesis_textから予測されたトークンを抽出
+        decoded_tokens = []
+        if hyp_text:
+            # 予測文を単語に分割してトークンIDに変換
+            pred_words = hyp_text.split()
+            # middle_dataset_relation_dictの逆引き
+            reverse_dict = {
+                v: k
+                for k, v in middle_dataset_relation.middle_dataset_relation_dict.items()
+            }
+            decoded_tokens = [
+                reverse_dict.get(word, 0) for word in pred_words if word in reverse_dict
+            ]
+
+        target_tokens = []
+        if isinstance(tokens, list) and len(tokens) > 0:
+            target_tokens = tokens[0] if isinstance(tokens[0], list) else tokens
+        elif hasattr(tokens, "tolist"):
+            # tokensがtensorの場合の処理
+            tokens_list = tokens.tolist()
+            target_tokens = tokens_list[0] if len(tokens_list) > 0 else []
+
+        # CTC可視化を実行
+        success = visualize_ctc_alignment_path(
+            log_probs=ctc_log_probs,
+            decoded_sequence=decoded_tokens,
+            target_sequence=target_tokens,
+            vocab_dict=middle_dataset_relation.middle_dataset_relation_dict,
+            blank_id=0,
+            sample_idx=0,
+            save_dir=ctc_output_dir,
+        )
+
+        if success:
+            logging.info(f"CTC可視化完了 - 参照文: {ref_text}")
+            logging.info(f"CTC可視化完了 - 予測文: {hyp_text}")
+            logging.info(f"CTC出力ディレクトリ: {ctc_output_dir}")
+
+        return success
+
+    except Exception as e:
+        logging.error(f"CTC可視化でエラー: {e}")
+        return False

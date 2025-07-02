@@ -10,12 +10,16 @@ if __name__ == "__main__":
     logger, log_file = init_log.setup_logging()
     logging.info("テストを開始しました")
     train_hdf5files, val_hdf5files, test_hdf5files, key2token = dataset.read_dataset()
-    train_dataloader, val_dataloader, test_dataloader, in_channels = functions.set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files)
+    train_dataloader, val_dataloader, test_dataloader, in_channels = (
+        functions.set_dataloader(
+            key2token, train_hdf5files, val_hdf5files, test_hdf5files
+        )
+    )
     VOCAB = len(key2token)
     out_channels = VOCAB
     save_path = model_config.model_save_path
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    
+
     cnn_transformer = model.CNNBiLSTMModel(
         in_channels=in_channels,
         kernel_size=model_config.kernel_size,
@@ -27,19 +31,47 @@ if __name__ == "__main__":
         resNet=model_config.resNet,
         activation=model_config.activation,
         tren_num_layers=model_config.tren_num_layers,
-        tren_num_heads=model_config.tren_num_heads,       
-        tren_dim_ffw=model_config.tren_dim_ffw,    
+        tren_num_heads=model_config.tren_num_heads,
+        tren_dim_ffw=model_config.tren_dim_ffw,
         tren_dropout=model_config.tren_dropout,
         tren_norm_eps=model_config.tren_norm_eps,
         batch_first=model_config.batch_first,
         tren_norm_first=model_config.tren_norm_first,
         tren_add_bias=model_config.tren_add_bias,
         num_classes=out_channels,
-        blank_idx=VOCAB-1,
+        blank_idx=VOCAB - 1,
     )
 
-    load_model, optimizer_loaded, epoch_loaded = functions.load_model(cnn_transformer, save_path, device)
+    load_model, optimizer_loaded, epoch_loaded = functions.load_model(
+        cnn_transformer, save_path, device
+    )
 
+    # ========================================
+    # 🔍 可視化設定
+    # ========================================
+    VISUALIZE_ATTENTION = True  # True: 可視化する, False: 可視化しない
 
-    wer, test_times = functions.test_loop(dataloader=test_dataloader, model=load_model, device=device, return_pred_times=True, blank_id=VOCAB-1)
+    if VISUALIZE_ATTENTION:
+        print("🔍 Attention & CTC可視化モードでテストを実行します")
+        print("  - Attention重み可視化")
+        print("  - CTC Alignment Path可視化")
+        wer, test_times = functions.test_loop(
+            dataloader=test_dataloader,
+            model=load_model,
+            device=device,
+            return_pred_times=True,
+            blank_id=VOCAB - 1,
+            visualize_attention=True,  # 可視化を有効化
+        )
+    else:
+        print("📊 通常モードでテストを実行します")
+        wer, test_times = functions.test_loop(
+            dataloader=test_dataloader,
+            model=load_model,
+            device=device,
+            return_pred_times=True,
+            blank_id=VOCAB - 1,
+            visualize_attention=False,  # 可視化を無効化
+        )
+
     print(f"ロードしたモデルのテスト精度: {wer}")

@@ -10,16 +10,17 @@ import torch.nn.functional as F
 
 class SpatialCorrelationModule(nn.Module):
     """空間的相関関係を学習する自己注意モジュール"""
+
     def __init__(self, input_dim, hidden_dim=256):
         super().__init__()
         self.query_proj = nn.Linear(input_dim, hidden_dim)
         self.key_proj = nn.Linear(input_dim, hidden_dim)
         self.value_proj = nn.Linear(input_dim, hidden_dim)
-        self.scale = hidden_dim ** -0.5
+        self.scale = hidden_dim**-0.5
         self.output_proj = nn.Linear(hidden_dim, input_dim)
         self.layer_norm = nn.LayerNorm(input_dim)
 
-    def forward(self, x):
+    def forward(self, x, return_attention=False):
         # x: (T, B, D) → (B, T, D)
         x = x.transpose(0, 1)
         residual = x
@@ -27,12 +28,17 @@ class SpatialCorrelationModule(nn.Module):
         k = self.key_proj(x)
         v = self.value_proj(x)
         attn = torch.matmul(q, k.transpose(-2, -1)) * self.scale  # (B, T, T)
-        attn = F.softmax(attn, dim=-1)
-        out = torch.matmul(attn, v)
+        attn_weights = F.softmax(attn, dim=-1)
+        out = torch.matmul(attn_weights, v)
         out = self.output_proj(out)
         out = self.layer_norm(residual + out)
         # (B, T, D) → (T, B, D)
-        return out.transpose(0, 1)
+        out = out.transpose(0, 1)
+
+        if return_attention:
+            return out, attn_weights  # attn_weights: (B, T, T)
+        return out
+
 
 class HierarchicalTemporalModule(nn.Module):
     """階層的時間モデリングを行うモジュール - 異なる時間スケールでの特徴抽出"""
@@ -319,7 +325,13 @@ class CNNBiLSTMModel(nn.Module):
             exit(1)
 
         # 相関学習モジュールの適用
-        cnn_out = self.spatial_correlation(cnn_out)
+        if hasattr(self, "_visualize_attention") and self._visualize_attention:
+            cnn_out, attention_weights = self.spatial_correlation(
+                cnn_out, return_attention=True
+            )
+            self.last_attention_weights = attention_weights  # 可視化用に保存
+        else:
+            cnn_out = self.spatial_correlation(cnn_out)
 
         # BiLSTMの実行
         print(f"updated_lgt: {updated_lgt}")
@@ -483,3 +495,23 @@ class CNNBiLSTMModel(nn.Module):
         # テンソルに変換して返す
         device = input_lengths.device
         return torch.tensor(updated_lengths, dtype=torch.long, device=device)
+
+    def enable_attention_visualization(self):
+        """Attention重みの可視化を有効化"""
+        self._visualize_attention = True
+        self.last_attention_weights = None
+
+    def disable_attention_visualization(self):
+        """Attention重みの可視化を無効化"""
+        self._visualize_attention = False
+        self.last_attention_weights = None
+
+    def get_attention_weights(self):
+        """最後に計算されたAttention重みを取得"""
+        if (
+            hasattr(self, "last_attention_weights")
+            and self.last_attention_weights is not None
+        ):
+            return self.last_attention_weights.detach().cpu().numpy()
+        else:
+            return None
