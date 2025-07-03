@@ -7,6 +7,9 @@ from CNN_BiLSTM.continuous_sign_language.plots import (
     plot_attention_statistics,
     plot_attention_focus_over_time,
     visualize_ctc_alignment_path,
+    extract_multilayer_features,
+    plot_multilayer_feature_visualization,
+    analyze_feature_separation,
 )
 from torchvision.transforms import Compose
 import os
@@ -263,10 +266,13 @@ def test_loop(
     blank_id=100,
     visualize_attention=False,
     generate_confusion_matrix=False,
+    visualize_confidence=False,
+    visualize_multilayer_features=False,
+    multilayer_method="both",
 ):
     """
     テストループ関数 - 予測精度評価と可視化・分析機能を統合
-    
+
     Args:
         dataloader: テストデータローダー
         model: 学習済みモデル
@@ -275,23 +281,31 @@ def test_loop(
         blank_id: ブランクトークンのID
         visualize_attention: Attention可視化を有効にするか
         generate_confusion_matrix: 混同行列を生成するか
-    
+        visualize_confidence: 予測信頼度可視化を有効にするか
+        visualize_multilayer_features: 多層特徴量可視化を有効にするか
+        multilayer_method: 多層特徴量可視化手法 ('tsne', 'umap', 'both')
+
     Returns:
         float or tuple: WER値、または (WER, 予測時間) のタプル
-        
+
     Note:
         以下の機能が統合されています:
         - 基本的な予測精度評価 (WER, CER, MER)
         - Attention重み可視化
+        - CTC Alignment Path可視化  
+        - 混同行列生成・分析
+        - 予測信頼度可視化
+        - 多層特徴量可視化 (CNN空間パターン、BiLSTM時系列、Attention重要度、最終統合特徴量)
         - CTC Alignment Path可視化
         - 混同行列分析
+        - 予測信頼度可視化（新機能）
     """
 
     size = len(dataloader.dataset)
     hypothesis_text_list = []
     hypothesis_text_conv_list = []
     reference_text_list = []
-    
+
     # 混同行列用のデータ収集
     if generate_confusion_matrix:
         prediction_labels = []
@@ -359,7 +373,7 @@ def test_loop(
 
             # Predict.
             pred_start = time.perf_counter()
-            pred, conv_pred = model.forward(
+            forward_result = model.forward(
                 src_feature=feature,
                 spatial_feature=spatial_feature,
                 tgt_feature=tokens,
@@ -370,6 +384,13 @@ def test_loop(
                 mode="test",
                 blank_id=0,
             )
+            
+            # 戻り値の数に応じて処理を分岐
+            if len(forward_result) == 3:
+                pred, conv_pred, sequence_logits = forward_result
+            else:
+                pred, conv_pred = forward_result
+                sequence_logits = None
 
             pred_end = time.perf_counter()
             pred_times.append([frames, pred_end - pred_start])
@@ -395,33 +416,134 @@ def test_loop(
             ]
             hypothesis_text_conv = [" ".join(map(str, seq)) for seq in conv_pred_words]
 
-            # Attention & CTC可視化処理
-            if visualize_attention and visualize_count < max_visualize_samples:
-                success_attention, success_ctc = process_attention_visualization(
-                    model=model,
-                    batch_idx=batch_idx,
-                    feature=feature,
-                    spatial_feature=spatial_feature,
-                    tokens=tokens,
-                    feature_pad_mask=feature_pad_mask,
-                    input_lengths=input_lengths,
-                    target_lengths=target_lengths,
-                    reference_text=reference_text,
-                    hypothesis_text=hypothesis_text,
-                    output_dir=output_dir,
-                    max_samples=max_visualize_samples
-                )
+            # Attention & CTC & 信頼度可視化処理
+            if (
+                visualize_attention or visualize_confidence
+            ) and visualize_count < max_visualize_samples:
+                # Attention & CTC可視化
+                success_attention, success_ctc = False, False
+                if visualize_attention:
+                    success_attention, success_ctc = process_attention_visualization(
+                        model=model,
+                        batch_idx=batch_idx,
+                        feature=feature,
+                        spatial_feature=spatial_feature,
+                        tokens=tokens,
+                        feature_pad_mask=feature_pad_mask,
+                        input_lengths=input_lengths,
+                        target_lengths=target_lengths,
+                        reference_text=reference_text,
+                        hypothesis_text=hypothesis_text,
+                        output_dir=output_dir,
+                        max_samples=max_visualize_samples,
+                    )                # 信頼度可視化
+                success_confidence, success_word_confidence = False, False
+                if visualize_confidence:
+                    # log_probsを準備
+                    log_probs = None
+                    try:
+                        # 既に取得したsequence_logitsからlog_probsを計算
+                        if sequence_logits is not None:
+                            log_probs = sequence_logits.log_softmax(-1)  # (T, B, C)
+                            logging.info(f"信頼度可視化用log_probsを取得しました。形状: {log_probs.shape}")
+                            # NaNや無限大値をチェック
+                            if torch.isnan(log_probs).any() or torch.isinf(log_probs).any():
+                                logging.warning("log_probsに無効な値が含まれています")
+                                log_probs = None
+                        else:
+                            logging.warning("sequence_logitsが利用できません")
+                    except Exception as e:
+                        logging.error(f"log_probs取得中にエラー: {e}")
+                        log_probs = None
 
-                if success_attention or success_ctc:
-                    visualize_count += 1
-                    logging.info(
-                        f"可視化完了 (Attention: {'成功' if success_attention else '失敗'}, CTC: {'成功' if success_ctc else '失敗'})"
+                    # 予測結果を準備
+                    pred_for_confidence = []
+                    if len(pred) > 0 and len(pred[0]) > 0:
+                        # predの構造: [[(word_id, confidence), ...], ...]
+                        pred_for_confidence = [item[0] if isinstance(item, tuple) else item for item in pred[0]]
+                        logging.info(f"信頼度可視化用予測データ: {len(pred_for_confidence)}個の単語")
+                    else:
+                        logging.warning("予測結果が空のため、信頼度可視化をスキップします")
+
+                    # 信頼度可視化を実行（データが揃っている場合のみ）
+                    if log_probs is not None:
+                        success_confidence, success_word_confidence = (
+                            process_confidence_visualization(
+                                log_probs=log_probs,
+                                predictions=pred_for_confidence,
+                                batch_idx=batch_idx,
+                                output_dir=output_dir,
+                                vocab_dict=middle_dataset_relation.middle_dataset_relation_dict,
+                            )
+                        )
+                    else:
+                        logging.warning("log_probsが利用できないため、信頼度可視化をスキップします")
+
+                # 多層特徴量可視化
+                success_multilayer = False
+                if visualize_multilayer_features:
+                    try:
+                        success_multilayer = process_multilayer_feature_visualization(
+                            model=model,
+                            feature=feature,
+                            spatial_feature=spatial_feature,
+                            tokens=tokens,
+                            feature_pad_mask=feature_pad_mask,
+                            input_lengths=input_lengths,
+                            target_lengths=target_lengths,
+                            pred=pred,
+                            batch_idx=batch_idx,
+                            output_dir=output_dir,
+                            vocab_dict=middle_dataset_relation.middle_dataset_relation_dict,
+                            method=multilayer_method
+                        )
+                        
+                        if success_multilayer:
+                            logging.info("多層特徴量可視化が成功しました")
+                        else:
+                            logging.warning("多層特徴量可視化に失敗しました")
+                            
+                    except Exception as e:
+                        logging.error(f"多層特徴量可視化でエラー: {e}")
+                        success_multilayer = False
+
+                # 可視化結果をチェック
+                any_success = False
+                if visualize_attention:
+                    any_success = success_attention or success_ctc
+                if visualize_confidence:
+                    any_success = (
+                        any_success or success_confidence or success_word_confidence
                     )
+                if visualize_multilayer_features:
+                    any_success = any_success or success_multilayer
+
+                if any_success:
+                    visualize_count += 1
+                    results = []
+                    if visualize_attention:
+                        results.append(
+                            f"Attention: {'成功' if success_attention else '失敗'}"
+                        )
+                        results.append(f"CTC: {'成功' if success_ctc else '失敗'}")
+                    if visualize_confidence:
+                        results.append(
+                            f"信頼度: {'成功' if success_confidence else '失敗'}"
+                        )
+                        results.append(
+                            f"単語信頼度: {'成功' if success_word_confidence else '失敗'}"
+                        )
+                    if visualize_multilayer_features:
+                        results.append(
+                            f"多層特徴量: {'成功' if success_multilayer else '失敗'}"
+                        )
+
+                    logging.info(f"可視化完了 ({', '.join(results)})")
 
             reference_text_list.append(reference_text[0])
             hypothesis_text_list.append(hypothesis_text[0])
             hypothesis_text_conv_list.append(hypothesis_text_conv[0])
-            
+
             # 混同行列用のラベル収集
             if generate_confusion_matrix:
                 # 単語レベルでの予測と正解を収集
@@ -446,15 +568,15 @@ def test_loop(
         visualize_attention=visualize_attention,
         visualize_count=visualize_count,
         max_visualize_samples=max_visualize_samples,
-        output_dir=output_dir
+        output_dir=output_dir,
     )
-    
+
     # 混同行列の生成
     if generate_confusion_matrix:
         success = generate_confusion_matrix_analysis(
             prediction_labels=prediction_labels,
             ground_truth_labels=ground_truth_labels,
-            save_dir=config.plot_save_dir
+            save_dir=config.plot_save_dir,
         )
 
     retval = (awer, pred_times) if return_pred_times else awer
@@ -574,6 +696,7 @@ def visualize_ctc_alignment(
     reference_text,
     hypothesis_text,
     output_dir,
+    sequence_logits=None,
 ):
     """
     CTC Alignment Pathの可視化処理を実行
@@ -600,23 +723,46 @@ def visualize_ctc_alignment(
         if isinstance(tokens, list):
             original_tokens = torch.tensor(tokens, device=feature.device)
 
-        # evalモードでCTC出力を取得
-        with torch.no_grad():
-            loss, sequence_logits = model.forward(
-                src_feature=feature,
-                spatial_feature=spatial_feature,
-                tgt_feature=original_tokens,
-                src_causal_mask=None,
-                src_padding_mask=feature_pad_mask,
-                input_lengths=input_lengths,
-                target_lengths=target_lengths,
-                mode="eval",
-                blank_id=0,
-            )
-            ctc_log_probs = sequence_logits.log_softmax(-1)  # (T, B, C)
+        # CTCログ確率を取得
+        ctc_log_probs = None
+        try:
+            if sequence_logits is not None:
+                # 既に取得済みのsequence_logitsを使用
+                ctc_log_probs = sequence_logits.log_softmax(-1)  # (T, B, C)
+                logging.info(f"CTC log_probsを取得 (既存): {ctc_log_probs.shape}")
+                # NaNや無限大値をチェック
+                if torch.isnan(ctc_log_probs).any() or torch.isinf(ctc_log_probs).any():
+                    logging.warning("CTC log_probsに無効な値が含まれています")
+                    ctc_log_probs = None
+            else:
+                # sequence_logitsが渡されていない場合は再計算
+                logging.info("sequence_logitsが利用できないため、CTC可視化のため再計算を実行します")
+                with torch.no_grad():
+                    forward_result = model.forward(
+                        src_feature=feature,
+                        spatial_feature=spatial_feature,
+                        tgt_feature=original_tokens,
+                        src_causal_mask=None,
+                        src_padding_mask=feature_pad_mask,
+                        input_lengths=input_lengths,
+                        target_lengths=target_lengths,
+                        mode="test",  # testモードでsequence_logitsを取得
+                        blank_id=0,
+                    )
+                    # 戻り値の数に応じて処理を分岐
+                    if len(forward_result) == 3:
+                        _, _, sequence_logits_tmp = forward_result
+                        if sequence_logits_tmp is not None:
+                            ctc_log_probs = sequence_logits_tmp.log_softmax(-1)  # (T, B, C)
+                            logging.info(f"CTC log_probsを取得 (再計算): {ctc_log_probs.shape}")
+                    else:
+                        logging.warning("再計算でもsequence_logitsが取得できませんでした")
+        except Exception as e:
+            logging.error(f"CTC log_probs取得中にエラー: {e}")
+            ctc_log_probs = None
 
         if ctc_log_probs is None:
-            logging.warning(f"Batch {batch_idx}: CTC出力が取得できませんでした")
+            logging.warning("CTC log_probsが取得できませんでした")
             return False
 
         # 予測結果の評価
@@ -680,15 +826,17 @@ def visualize_ctc_alignment(
         return False
 
 
-def generate_confusion_matrix_analysis(prediction_labels, ground_truth_labels, save_dir=None):
+def generate_confusion_matrix_analysis(
+    prediction_labels, ground_truth_labels, save_dir=None
+):
     """
     混同行列分析を実行する独立関数
-    
+
     Args:
         prediction_labels: 予測ラベルのリスト
-        ground_truth_labels: 正解ラベルのリスト  
+        ground_truth_labels: 正解ラベルのリスト
         save_dir: 保存ディレクトリ (None の場合は config.plot_save_dir を使用)
-    
+
     Returns:
         bool: 成功したかどうか
     """
@@ -696,39 +844,44 @@ def generate_confusion_matrix_analysis(prediction_labels, ground_truth_labels, s
         if len(prediction_labels) == 0 or len(ground_truth_labels) == 0:
             logging.warning("混同行列生成用のデータが不足しています")
             return False
-            
+
         if len(prediction_labels) != len(ground_truth_labels):
-            logging.warning(f"予測ラベル数({len(prediction_labels)})と正解ラベル数({len(ground_truth_labels)})が一致しません")
+            logging.warning(
+                f"予測ラベル数({len(prediction_labels)})と正解ラベル数({len(ground_truth_labels)})が一致しません"
+            )
             return False
-            
+
         logging.info(f"混同行列生成開始 - 総サンプル数: {len(prediction_labels)}")
-        
+
         # 語彙辞書を作成（単語名をそのまま使用）
         unique_words = sorted(set(ground_truth_labels + prediction_labels))
         vocab_dict = {word: word for word in unique_words}
-        
+
         # 保存パスを決定
         if save_dir is None:
             save_dir = config.plot_save_dir
         save_path = os.path.join(save_dir, "word_level_confusion_matrix.png")
-        
+
         # 混同行列を生成
-        from CNN_BiLSTM.continuous_sign_language.plots import analyze_word_level_confusion
+        from CNN_BiLSTM.continuous_sign_language.plots import (
+            analyze_word_level_confusion,
+        )
+
         success = analyze_word_level_confusion(
             predictions=prediction_labels,
-            ground_truth=ground_truth_labels,  
+            ground_truth=ground_truth_labels,
             vocab_dict=vocab_dict,
-            save_path=save_path
+            save_path=save_path,
         )
-        
+
         if success:
             logging.info("混同行列の生成が完了しました")
             logging.info(f"保存先: {save_path}")
         else:
             logging.warning("混同行列の生成に失敗しました")
-            
+
         return success
-        
+
     except Exception as e:
         logging.error(f"混同行列分析でエラー: {e}")
         return False
@@ -737,11 +890,11 @@ def generate_confusion_matrix_analysis(prediction_labels, ground_truth_labels, s
 def collect_prediction_labels(reference_text, hypothesis_text):
     """
     予測結果から単語レベルのラベルを収集する関数
-    
+
     Args:
         reference_text: 正解テキスト
         hypothesis_text: 予測テキスト
-    
+
     Returns:
         tuple: (ground_truth_words, prediction_words)
     """
@@ -749,32 +902,41 @@ def collect_prediction_labels(reference_text, hypothesis_text):
         # 単語レベルでの予測と正解を収集
         ref_words = reference_text.split()
         pred_words = hypothesis_text.split()
-        
+
         # 単語ごとにラベルを収集（長さが異なる場合は短い方に合わせる）
         min_len = min(len(ref_words), len(pred_words))
-        
+
         ground_truth_words = []
         prediction_words = []
-        
+
         for i in range(min_len):
             ground_truth_words.append(ref_words[i])
             prediction_words.append(pred_words[i])
-            
+
         return ground_truth_words, prediction_words
-        
+
     except Exception as e:
         logging.error(f"ラベル収集でエラー: {e}")
         return [], []
 
 
 def process_attention_visualization(
-    model, batch_idx, feature, spatial_feature, tokens, feature_pad_mask,
-    input_lengths, target_lengths, reference_text, hypothesis_text, 
-    output_dir, max_samples=10
+    model,
+    batch_idx,
+    feature,
+    spatial_feature,
+    tokens,
+    feature_pad_mask,
+    input_lengths,
+    target_lengths,
+    reference_text,
+    hypothesis_text,
+    output_dir,
+    max_samples=10,
 ):
     """
     Attention可視化処理を実行する独立関数
-    
+
     Args:
         model: モデルインスタンス
         batch_idx: バッチインデックス
@@ -788,7 +950,7 @@ def process_attention_visualization(
         hypothesis_text: 予測テキスト
         output_dir: 出力ディレクトリ
         max_samples: 最大可視化サンプル数
-    
+
     Returns:
         tuple: (success_attention, success_ctc)
     """
@@ -805,7 +967,7 @@ def process_attention_visualization(
         success_ctc = visualize_ctc_alignment(
             model=model,
             batch_idx=batch_idx,
-            feature=feature,  
+            feature=feature,
             spatial_feature=spatial_feature,
             tokens=tokens,
             feature_pad_mask=feature_pad_mask,
@@ -815,9 +977,9 @@ def process_attention_visualization(
             hypothesis_text=hypothesis_text,
             output_dir=output_dir,
         )
-        
+
         return success_attention, success_ctc
-        
+
     except Exception as e:
         logging.error(f"Attention可視化処理でエラー: {e}")
         return False, False
@@ -826,11 +988,11 @@ def process_attention_visualization(
 def setup_visualization_environment(visualize_attention, max_visualize_samples=10):
     """
     可視化環境をセットアップする関数
-    
+
     Args:
         visualize_attention: 可視化を有効にするかどうか
         max_visualize_samples: 最大可視化サンプル数
-    
+
     Returns:
         tuple: (output_dir, visualize_count) または (None, 0)
     """
@@ -846,10 +1008,12 @@ def setup_visualization_environment(visualize_attention, max_visualize_samples=1
         return None, 0
 
 
-def finalize_visualization(model, visualize_attention, visualize_count, max_visualize_samples, output_dir):
+def finalize_visualization(
+    model, visualize_attention, visualize_count, max_visualize_samples, output_dir
+):
     """
     可視化処理の後処理を行う関数
-    
+
     Args:
         model: モデルインスタンス
         visualize_attention: 可視化が有効だったかどうか
@@ -869,11 +1033,11 @@ def finalize_visualization(model, visualize_attention, visualize_count, max_visu
 def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
     """
     WER関連の評価指標を計算する関数
-    
+
     Args:
         reference_text_list: 正解テキストのリスト
         hypothesis_text_list: 予測テキストのリスト
-    
+
     Returns:
         dict: 各種評価指標の辞書
     """
@@ -902,20 +1066,213 @@ def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
         awer = wer(reference_text_list, hypothesis_text_list)
         error_rate_cer = cer(reference_text_list, hypothesis_text_list)
         error_rate_mer = mer(reference_text_list, hypothesis_text_list)
-        
+
         # ログ出力
         logging.info(f"Test performance - Avg WER: {awer:>0.10f}")
         logging.info(f"Overall WER: {awer}")
         logging.info(f"Overall CER: {error_rate_cer}")
         logging.info(f"Overall MER: {error_rate_mer}")
-        
+
         return {
             "awer": awer,
             "cer": error_rate_cer,
             "mer": error_rate_mer,
-            "label_wer": label_wer
+            "label_wer": label_wer,
         }
-        
+
     except Exception as e:
         logging.error(f"WER計算でエラー: {e}")
         return None
+
+
+def process_confidence_visualization(
+    log_probs, predictions, batch_idx, output_dir, vocab_dict=None
+):
+    """
+    予測信頼度可視化処理を実行する独立関数
+
+    Args:
+        log_probs: CTC出力の対数確率
+        predictions: 予測結果
+        batch_idx: バッチインデックス
+        output_dir: 出力ディレクトリ
+        vocab_dict: 語彙辞書
+
+    Returns:
+        tuple: (success_confidence, success_word_confidence)
+    """
+    try:
+        from CNN_BiLSTM.continuous_sign_language.plots import (
+            plot_prediction_confidence_over_time,
+            plot_word_level_confidence_timeline,
+        )
+
+        success_confidence = False
+        success_word_confidence = False
+
+        # 時系列信頼度可視化
+        if log_probs is not None:
+            confidence_path = os.path.join(
+                output_dir, f"confidence_timeline_batch_{batch_idx}.png"
+            )
+            success_confidence = plot_prediction_confidence_over_time(
+                log_probs=log_probs,
+                vocab_dict=vocab_dict,
+                save_path=confidence_path,
+                sample_idx=0,
+            )
+            if success_confidence:
+                logging.info(f"時系列信頼度可視化完了: {confidence_path}")
+            else:
+                logging.warning("時系列信頼度可視化に失敗しました")
+        else:
+            logging.warning("log_probsがNullのため、時系列信頼度可視化をスキップします")
+
+        # 単語レベル信頼度可視化
+        if log_probs is not None and predictions and len(predictions) > 0:
+            word_confidence_path = os.path.join(
+                output_dir, f"word_confidence_batch_{batch_idx}.png"
+            )
+            success_word_confidence = plot_word_level_confidence_timeline(
+                predictions=predictions,
+                log_probs=log_probs,
+                vocab_dict=vocab_dict,
+                save_path=word_confidence_path,
+                sample_idx=0,
+            )
+            if success_word_confidence:
+                logging.info(f"単語レベル信頼度可視化完了: {word_confidence_path}")
+            else:
+                logging.warning("単語レベル信頼度可視化に失敗しました")
+        else:
+            if log_probs is None:
+                logging.warning("log_probsがNullのため、単語レベル信頼度可視化をスキップします")
+            if not predictions or len(predictions) == 0:
+                logging.warning("予測結果が空のため、単語レベル信頼度可視化をスキップします")
+
+        return success_confidence, success_word_confidence
+
+    except Exception as e:
+        logging.error(f"信頼度可視化処理でエラー: {e}")
+        import traceback
+        logging.error(f"詳細なエラー情報: {traceback.format_exc()}")
+        return False, False
+
+
+def process_multilayer_feature_visualization(
+    model,
+    feature,
+    spatial_feature,
+    tokens,
+    feature_pad_mask,
+    input_lengths,
+    target_lengths,
+    pred,
+    batch_idx,
+    output_dir,
+    vocab_dict=None,
+    method="both"
+):
+    """
+    手話認識の多層特徴量可視化を統合処理
+    
+    CNN出力→空間的パターン、BiLSTM隠れ状態→時系列ダイナミクス、
+    Attention重み→重要度マップ、最終層直前→統合的判断
+    の各層特徴量を抽出・可視化・分析する包括的な処理
+    
+    Args:
+        model: CNNBiLSTMモデル
+        feature: 入力特徴量
+        spatial_feature: 空間特徴量
+        tokens: ターゲットトークン
+        feature_pad_mask: パディングマスク
+        input_lengths: 入力長
+        target_lengths: ターゲット長
+        pred: 予測結果
+        batch_idx: バッチインデックス
+        output_dir: 出力ディレクトリ
+        vocab_dict: 語彙辞書
+        method: 可視化手法 ('tsne', 'umap', 'both')
+    
+    Returns:
+        bool: 処理成功フラグ
+    """
+    try:
+        logging.info(f"多層特徴量可視化開始 - バッチ {batch_idx}")
+        
+        # 多層特徴量を抽出
+        features_dict = extract_multilayer_features(
+            model=model,
+            feature=feature,
+            spatial_feature=spatial_feature,
+            tokens=tokens,
+            feature_pad_mask=feature_pad_mask,
+            input_lengths=input_lengths,
+            target_lengths=target_lengths,
+            blank_id=0,
+        )
+        
+        if not features_dict or len(features_dict) <= 1:  # メタデータのみの場合
+            logging.warning("有効な特徴量が抽出されませんでした")
+            return False
+        
+        # ラベルを準備（予測結果から）
+        labels = None
+        if pred and len(pred) > 0 and len(pred[0]) > 0:
+            # 予測結果から最初のサンプルのラベルを作成
+            sample_predictions = pred[0] if isinstance(pred[0], list) else pred
+            if sample_predictions:
+                # 予測された単語IDをラベルとして使用
+                labels = np.array([item[0] if isinstance(item, tuple) else item for item in sample_predictions[:10]])  # 最初の10単語
+                # バッチサイズに合わせて拡張
+                batch_size = list(features_dict.values())[0]['features'].shape[0] if features_dict else 1
+                if len(labels) < batch_size:
+                    # 不足分は最後の値で埋める
+                    labels = np.pad(labels, (0, batch_size - len(labels)), mode='edge')
+                elif len(labels) > batch_size:
+                    # 超過分を切り詰める
+                    labels = labels[:batch_size]
+            else:
+                logging.warning("予測結果が空のため、ラベルなしで可視化します")
+        else:
+            logging.warning("予測結果が利用できないため、ラベルなしで可視化します")
+        
+        # 出力ディレクトリを設定
+        multilayer_output_dir = os.path.join(output_dir, f"multilayer_features_batch_{batch_idx}")
+        os.makedirs(multilayer_output_dir, exist_ok=True)
+        
+        # 多層特徴量可視化を実行
+        success = plot_multilayer_feature_visualization(
+            features_dict=features_dict,
+            labels=labels,
+            vocab_dict=vocab_dict,
+            save_dir=multilayer_output_dir,
+            sample_idx=0,
+            method=method
+        )
+        
+        if success:
+            logging.info(f"多層特徴量可視化完了: {multilayer_output_dir}")
+            
+            # 特徴量分離度分析も実行
+            if labels is not None:
+                separation_results = analyze_feature_separation(
+                    features_dict=features_dict,
+                    labels=labels,
+                    vocab_dict=vocab_dict,
+                    save_dir=multilayer_output_dir,
+                    sample_idx=0
+                )
+                
+                if separation_results:
+                    logging.info("特徴量分離度分析も完了しました")
+        else:
+            logging.warning("多層特徴量可視化に失敗しました")
+        
+        return success
+        
+    except Exception as e:
+        logging.error(f"多層特徴量可視化統合処理でエラー: {e}")
+        import traceback
+        logging.error(f"詳細なエラー情報: {traceback.format_exc()}")
+        return False

@@ -51,17 +51,25 @@ if __name__ == "__main__":
     # ========================================
     VISUALIZE_ATTENTION = True  # True: 可視化する, False: 可視化しない
     GENERATE_CONFUSION_MATRIX = True  # True: 混同行列を生成, False: 生成しない
+    VISUALIZE_CONFIDENCE = True  # True: 予測信頼度可視化, False: 可視化しない
+    VISUALIZE_MULTILAYER_FEATURES = True  # True: 多層特徴量可視化, False: 可視化しない
+    MULTILAYER_METHOD = "both"  # "tsne", "umap", "both"
 
-    if VISUALIZE_ATTENTION or GENERATE_CONFUSION_MATRIX:
+    if VISUALIZE_ATTENTION or GENERATE_CONFUSION_MATRIX or VISUALIZE_CONFIDENCE or VISUALIZE_MULTILAYER_FEATURES:
         analysis_options = []
         if VISUALIZE_ATTENTION:
             analysis_options.append("Attention & CTC可視化")
         if GENERATE_CONFUSION_MATRIX:
             analysis_options.append("混同行列分析")
-            
+        if VISUALIZE_CONFIDENCE:
+            analysis_options.append("予測信頼度可視化")
+        if VISUALIZE_MULTILAYER_FEATURES:
+            analysis_options.append(f"多層特徴量可視化({MULTILAYER_METHOD})")
+
         print(f"🔍 拡張分析モードでテストを実行します")
         print(f"  有効な分析: {', '.join(analysis_options)}")
-        
+        print(f"  多層特徴量分析: CNN空間パターン、BiLSTM時系列、Attention重要度、最終統合特徴量")
+
         wer, test_times = functions.test_loop(
             dataloader=test_dataloader,
             model=load_model,
@@ -70,6 +78,9 @@ if __name__ == "__main__":
             blank_id=VOCAB - 1,
             visualize_attention=VISUALIZE_ATTENTION,
             generate_confusion_matrix=GENERATE_CONFUSION_MATRIX,
+            visualize_confidence=VISUALIZE_CONFIDENCE,
+            visualize_multilayer_features=VISUALIZE_MULTILAYER_FEATURES,
+            multilayer_method=MULTILAYER_METHOD,
         )
     else:
         print("📊 通常モードでテストを実行します")
@@ -81,6 +92,9 @@ if __name__ == "__main__":
             blank_id=VOCAB - 1,
             visualize_attention=False,
             generate_confusion_matrix=False,
+            visualize_confidence=False,
+            visualize_multilayer_features=False,
+            multilayer_method="both",
         )
 
     print(f"ロードしたモデルのテスト精度: {wer}")

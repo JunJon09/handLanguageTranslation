@@ -416,7 +416,8 @@ class CNNBiLSTMModel(nn.Module):
             loss = self.criterion_calculation(ret_dict, tgt_feature, target_lengths)
             return loss, outputs
         else:
-            return pred, conv_pred
+            # testモードでもlog_probsを返すオプションを追加
+            return pred, conv_pred, outputs
 
     def criterion_calculation(self, ret_dict, label, label_lgt):
         loss = 0
