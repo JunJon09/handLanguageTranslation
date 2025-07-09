@@ -11,6 +11,7 @@
 /relation_asl_sign/*
 /movie_to_csv/*
 /csv_to_hdf5/*
+/ContinuousSignLanguage/CNN_BiLSTM/reports/figures/attention_test/*
 !/relation_asl_sign/src
 !/movie_to_csv/src
 !/csv_to_hdf5/src

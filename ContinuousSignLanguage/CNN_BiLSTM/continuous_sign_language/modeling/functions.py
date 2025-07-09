@@ -313,7 +313,7 @@ def test_loop(
         logging.info("混同行列生成モードを有効化")
 
     # Attention可視化の設定
-    max_visualize_samples = 10  # 最大可視化サンプル数
+    max_visualize_samples = 20  # 最大可視化サンプル数
     output_dir, visualize_count = setup_visualization_environment(
         visualize_attention, max_visualize_samples
     )
@@ -347,24 +347,6 @@ def test_loop(
             spatial_feature_pad_mask = spatial_feature_pad_mask.to(device)
 
             frames = feature.shape[-2]
-
-            # 実際のシーケンス長を計算
-            # 入力シーケンス長（CNNで縮小された後の長さ）
-            # 後述のモデルのForwardパスで処理される形に変形
-            N, C, T, J = feature.shape
-            src_feature_reshaped = (
-                feature.permute(0, 3, 1, 2).contiguous().view(N, C * J, T)
-            )
-
-            # CNN通過後の長さを推定（ストライドとカーネルサイズに基づく）
-            # 簡易的な方法：CNNの出力長さ = (入力長さ + 2*パディング - カーネルサイズ) / ストライド + 1
-            from CNN_BiLSTM.continuous_sign_language.modeling import (
-                config as model_config,
-            )
-
-            kernel_size = model_config.kernel_size
-            stride = model_config.stride
-            padding = model_config.padding
 
             input_lengths = feature_lengths
 
@@ -417,9 +399,7 @@ def test_loop(
             hypothesis_text_conv = [" ".join(map(str, seq)) for seq in conv_pred_words]
 
             # Attention & CTC & 信頼度可視化処理
-            if (
-                visualize_attention or visualize_confidence
-            ) and visualize_count < max_visualize_samples:
+            if (visualize_attention or visualize_confidence) and visualize_count < max_visualize_samples:
                 # Attention & CTC可視化
                 success_attention, success_ctc = False, False
                 if visualize_attention:

@@ -240,9 +240,8 @@ def plot_attention_matrix(
     plt.tight_layout()
 
     if save_path is None:
-        save_path = os.path.join(
-            config.plot_save_dir, f"attention_matrix_sample_{sample_idx}.png"
-        )
+        # config.pyの設定を使用してAttention可視化の保存パスを生成
+        save_path = config.get_visualization_save_path('attention', batch_idx=0, sample_idx=sample_idx)
 
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close()
@@ -481,9 +480,10 @@ def plot_ctc_probability_heatmap(
         plt.tight_layout()
 
         if save_path is None:
-            save_path = os.path.join(
-                config.plot_save_dir, f"ctc_heatmap_sample_{sample_idx}.png"
-            )
+            # config.pyの設定を使用してCTC可視化の保存パスを生成
+            save_path = config.get_visualization_save_path('ctc', batch_idx=0, sample_idx=sample_idx)
+            # ファイル名を調整
+            save_path = save_path.replace('.png', '_heatmap.png')
 
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
         plt.close()
@@ -595,9 +595,10 @@ def plot_ctc_probability_over_time(
         plt.tight_layout()
 
         if save_path is None:
-            save_path = os.path.join(
-                config.plot_save_dir, f"ctc_prob_over_time_sample_{sample_idx}.png"
-            )
+            # config.pyの設定を使用してCTC時間変化の保存パスを生成
+            save_path = config.get_visualization_save_path('ctc', batch_idx=0, sample_idx=sample_idx)
+            # ファイル名を調整
+            save_path = save_path.replace('.png', '_timeline.png')
 
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
         plt.close()
@@ -904,7 +905,8 @@ def plot_confusion_matrix(
         plt.tight_layout()
 
         if save_path is None:
-            save_path = os.path.join(config.plot_save_dir, "confusion_matrix.png")
+            # config.pyの設定を使用してConfusion Matrix保存パスを生成
+            save_path = config.get_visualization_save_path('confusion', batch_idx=0)
 
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
         plt.close()
@@ -1248,10 +1250,8 @@ Certainty Index: μ={mean_certainty:.3f}, σ={np.std(certainty_index):.3f}"""
         )
 
         if save_path is None:
-            save_path = os.path.join(
-                config.plot_save_dir,
-                f"prediction_confidence_timeline_sample_{sample_idx}.png",
-            )
+            # config.pyの設定を使用してConfidence可視化の保存パスを生成
+            save_path = config.get_visualization_save_path('confidence', batch_idx=0, sample_idx=sample_idx)
 
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
         plt.close()
@@ -1723,11 +1723,33 @@ def extract_multilayer_features(
                             B, T1, T2 = attention_weights.shape
                             # 時系列Attention重みを特徴量として使用
                             # 各時刻での注目度の統計量を特徴量とする
-                            attention_stats = np.concatenate([
-                                attention_weights.mean(axis=2),  # 平均注目度
-                                attention_weights.std(axis=2),   # 注目度の分散
-                                attention_weights.max(axis=2)[0], # 最大注目度
-                            ], axis=1)
+                            
+                            # 各統計量を計算（すべて同じ形状になるように）
+                            mean_attention = attention_weights.mean(axis=2)      # (B, T1)
+                            std_attention = attention_weights.std(axis=2)        # (B, T1)
+                            max_attention = attention_weights.max(axis=2)        # (B, T1) - maxは値のみ返す
+                            
+                            # 形状を確認してログ出力
+                            logging.debug(f"Mean attention shape: {mean_attention.shape}")
+                            logging.debug(f"Std attention shape: {std_attention.shape}")
+                            logging.debug(f"Max attention shape: {max_attention.shape}")
+                            
+                            # 形状の一貫性をチェック
+                            if (mean_attention.shape == std_attention.shape == max_attention.shape):
+                                # 次元数を統一してから結合
+                                attention_stats = np.concatenate([
+                                    mean_attention,  # (B, T1)
+                                    std_attention,   # (B, T1)
+                                    max_attention,   # (B, T1)
+                                ], axis=1)
+                            else:
+                                logging.error(f"Attention統計量の形状が一致しません: "
+                                            f"mean={mean_attention.shape}, std={std_attention.shape}, max={max_attention.shape}")
+                                raise ValueError("Attention統計量の形状が一致しません")
+                            
+                        else:
+                            logging.warning(f"予期しないAttention重み形状: {attention_weights.shape}")
+                            raise ValueError(f"予期しないAttention重み形状: {attention_weights.shape}")
                             
                             extracted_features['attention_importance_map'] = {
                                 'features': attention_stats,
@@ -1854,19 +1876,36 @@ def plot_multilayer_feature_visualization(
                 plt.subplot((n_layers + 2) // 3, 3, i + 1)
                 
                 try:
+                    # データサイズのチェック
+                    n_samples, n_features = features.shape
+                    
+                    # サンプル数が少なすぎる場合はスキップ
+                    if n_samples < 3:
+                        logging.warning(f"{layer_name}: サンプル数が不足 ({n_samples})")
+                        plt.text(0.5, 0.5, f'サンプル数不足\n({n_samples} samples)', 
+                                ha='center', va='center', transform=plt.gca().transAxes)
+                        plt.title(f'{layer_title} (サンプル不足)', fontsize=12)
+                        continue
+                    
                     # t-SNE実行
                     if features.shape[1] > 50:
                         # 高次元の場合はPCAで前処理
                         from sklearn.decomposition import PCA
-                        pca = PCA(n_components=50)
+                        # n_componentsをデータサイズに合わせて調整
+                        n_pca_components = min(50, n_samples - 1, n_features)
+                        pca = PCA(n_components=n_pca_components)
                         features_reduced = pca.fit_transform(features)
                         explained_var = sum(pca.explained_variance_ratio_)
-                        logging.info(f"{layer_name}: PCA前処理 {features.shape[1]}→50次元 (累積寄与率: {explained_var:.3f})")
+                        logging.info(f"{layer_name}: PCA前処理 {features.shape[1]}→{n_pca_components}次元 (累積寄与率: {explained_var:.3f})")
                     else:
                         features_reduced = features
                     
-                    tsne = TSNE(n_components=2, random_state=42, perplexity=min(30, features.shape[0]-1))
+                    # perplexityを適切に設定（サンプル数の1/3未満、最低5、最大30）
+                    perplexity = max(5, min(30, (n_samples - 1) // 3))
+                    tsne = TSNE(n_components=2, random_state=42, perplexity=perplexity)
                     features_2d = tsne.fit_transform(features_reduced)
+                    
+                    logging.info(f"{layer_name}: t-SNE実行 (perplexity={perplexity}, samples={n_samples})")
                     
                     # 散布図プロット
                     if labels is not None:
@@ -1906,7 +1945,10 @@ def plot_multilayer_feature_visualization(
                     plt.title(f'{layer_title} (エラー)', fontsize=12)
             
             plt.tight_layout()
-            tsne_path = os.path.join(save_dir, f'multilayer_features_tsne_sample_{sample_idx}.png')
+            # config.pyの設定を使用して保存パスを生成
+            tsne_path = config.get_visualization_save_path('features', batch_idx=0, sample_idx=sample_idx)
+            # ファイル名を調整
+            tsne_path = tsne_path.replace('.png', '_tsne.png')
             plt.savefig(tsne_path, dpi=300, bbox_inches='tight')
             plt.close()
             logging.info(f"t-SNE多層特徴量可視化を保存: {tsne_path}")
@@ -1928,9 +1970,45 @@ def plot_multilayer_feature_visualization(
                 plt.subplot((n_layers + 2) // 3, 3, i + 1)
                 
                 try:
+                    # データサイズのチェック
+                    n_samples, n_features = features.shape
+                    
+                    # サンプル数が少なすぎる場合はスキップ
+                    if n_samples < 3:
+                        logging.warning(f"{layer_name}: サンプル数が不足 ({n_samples})")
+                        plt.text(0.5, 0.5, f'サンプル数不足\n({n_samples} samples)', 
+                                ha='center', va='center', transform=plt.gca().transAxes)
+                        plt.title(f'{layer_title} (サンプル不足)', fontsize=12)
+                        continue
+                    
                     # UMAP実行
-                    reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=min(15, features.shape[0]-1))
-                    features_2d = reducer.fit_transform(features)
+                    n_neighbors = max(2, min(15, n_samples - 1))
+                    try:
+                        # 複数のUMAPインポート方法を試行
+                        try:
+                            import umap.umap_ as umap_impl
+                            reducer = umap_impl.UMAP(n_components=2, random_state=42, n_neighbors=n_neighbors)
+                        except ImportError:
+                            try:
+                                import umap
+                                reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=n_neighbors)
+                            except (ImportError, AttributeError):
+                                raise ImportError("UMAPライブラリが正しくインストールされていません")
+                        
+                        features_2d = reducer.fit_transform(features)
+                        logging.info(f"{layer_name}: UMAP実行 (n_neighbors={n_neighbors}, samples={n_samples})")
+                        
+                    except ImportError:
+                        # UMAPが利用できない場合はPCAで代替
+                        logging.warning(f"{layer_name}: UMAPが利用できないため、PCAで代替")
+                        try:
+                            from sklearn.decomposition import PCA
+                            pca = PCA(n_components=2)
+                            features_2d = pca.fit_transform(features)
+                        except ImportError:
+                            # PCAも利用できない場合は最初の2次元のみ使用
+                            logging.warning(f"{layer_name}: PCAも利用できないため、最初の2次元を使用")
+                            features_2d = features[:, :2] if features.shape[1] >= 2 else features
                     
                     # 散布図プロット
                     if labels is not None:
@@ -1970,7 +2048,10 @@ def plot_multilayer_feature_visualization(
                     plt.title(f'{layer_title} (エラー)', fontsize=12)
             
             plt.tight_layout()
-            umap_path = os.path.join(save_dir, f'multilayer_features_umap_sample_{sample_idx}.png')
+            # config.pyの設定を使用して保存パスを生成
+            umap_path = config.get_visualization_save_path('features', batch_idx=0, sample_idx=sample_idx)
+            # ファイル名を調整
+            umap_path = umap_path.replace('.png', '_umap.png')
             plt.savefig(umap_path, dpi=300, bbox_inches='tight')
             plt.close()
             logging.info(f"UMAP多層特徴量可視化を保存: {umap_path}")
