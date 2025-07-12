@@ -2,16 +2,62 @@ import cv2
 import mediapipe as mp
 from typing import List, Dict, Any
 import config
+from collections import deque
+
 
 class MediaPipeClass:
 
-    def get_skeleton_by_mediapipe(self, input_file:str) -> List[Dict[str, Any]]:
+    def __init__(self):
+        # FaceMeshの鼻先のランドマークインデックス
+        self.nose_tip_index = 4
+
+    def get_nose_coordinates(self, landmarks, image_shape):
+        """座標を画像座標系に変換"""
+        h, w = image_shape[:2]
+        return int(landmarks.x * w), int(landmarks.y * h)
+
+    def is_face_data_valid(self, pose_results, face_results, image_shape):
+        """PoseとFaceMeshの鼻座標差をチェックして、顔データが有効かどうかを判定"""
+        if not (
+            pose_results.pose_landmarks
+            and face_results.multi_face_landmarks
+            and len(face_results.multi_face_landmarks) > 0
+        ):
+            return False
+
+        # Poseの鼻座標
+        pose_nose = pose_results.pose_landmarks.landmark[
+            mp.solutions.pose.PoseLandmark.NOSE
+        ]
+        pose_nose_coords = self.get_nose_coordinates(pose_nose, image_shape)
+
+        # FaceMeshの鼻座標
+        face_landmarks = face_results.multi_face_landmarks[0]
+        face_nose = face_landmarks.landmark[self.nose_tip_index]
+        face_nose_coords = self.get_nose_coordinates(face_nose, image_shape)
+
+        # オフセット計算
+        offset = (
+            pose_nose_coords[0] - face_nose_coords[0],
+            pose_nose_coords[1] - face_nose_coords[1],
+        )
+
+        # 閾値チェック
+        threshold = 30  # 閾値を30ピクセルに設定（調整可能）
+        if abs(offset[0]) >= threshold or abs(offset[1]) >= threshold:
+            print(
+                f"Warning: 顔の位置ずれが大きすぎます。オフセット: ({offset[0]}, {offset[1]})"
+            )
+            return False
+
+        return True
+
+    def get_skeleton_by_mediapipe(self, input_file: str) -> List[Dict[str, Any]]:
         mp_face_mesh = mp.solutions.face_mesh
         mp_pose = mp.solutions.pose
         mp_hands = mp.solutions.hands
         mp_drawing = mp.solutions.drawing_utils
         mp_drawing_styles = mp.solutions.drawing_styles
-
 
         landmarks_list = []
 
@@ -26,21 +72,25 @@ class MediaPipeClass:
 
         fps = cap.get(cv2.CAP_PROP_FPS)
 
-        with mp_face_mesh.FaceMesh(static_image_mode=False,
-                        max_num_faces=10,
-                        refine_landmarks=True,
-                        min_detection_confidence=0.05,  # 0.5から0.3に下げる
-                        min_tracking_confidence=0.05) as face_mesh, \
-            mp_pose.Pose(static_image_mode=False,
-                        model_complexity=0,  # 1から0に変更してパフォーマンスを改善
-                        enable_segmentation=False,
-                        min_detection_confidence=0.3,
-                        min_tracking_confidence=0.3) as pose, \
-            mp_hands.Hands(static_image_mode=False,
-                        max_num_hands=2,
-                        min_detection_confidence=0.3,
-                        min_tracking_confidence=0.3) as hands:
-        
+        with mp_face_mesh.FaceMesh(
+            static_image_mode=False,
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.03,  # 信頼度を適切な値に調整
+            min_tracking_confidence=0.03,
+        ) as face_mesh, mp_pose.Pose(
+            static_image_mode=False,
+            model_complexity=0,  # 1から0に変更してパフォーマンスを改善
+            enable_segmentation=False,
+            min_detection_confidence=0.3,
+            min_tracking_confidence=0.3,
+        ) as pose, mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=2,
+            min_detection_confidence=0.3,
+            min_tracking_confidence=0.3,
+        ) as hands:
+
             frame_idx = 0
             while True:
                 success, frame = cap.read()
@@ -53,96 +103,175 @@ class MediaPipeClass:
                 pose_results = pose.process(image_rgb)
                 hands_results = hands.process(image_rgb)
 
+                # FaceMeshの妥当性をチェック
+                is_face_valid = self.is_face_data_valid(
+                    pose_results, face_results, frame.shape
+                )
+
                 frame_landmarks = {
-                    'frame_index': frame_idx,
-                    'face': [],
-                    'pose': [],
-                    'left_hand': [],
-                    'right_hand': []
+                    "frame_index": frame_idx,
+                    "face": [],
+                    "pose": [],
+                    "left_hand": [],
+                    "right_hand": [],
                 }
 
-                if face_results.multi_face_landmarks:
+                if face_results.multi_face_landmarks and is_face_valid:
+                    # 顔データが有効な場合のみ、元のFaceMeshデータをそのまま使用
                     for face_landmark in face_results.multi_face_landmarks:
                         for lm in face_landmark.landmark:
-                            frame_landmarks['face'].append({
-                                'x': lm.x,
-                                'y': lm.y,
-                                'z': lm.z
-                            })
+                            frame_landmarks["face"].append(
+                                {"x": lm.x, "y": lm.y, "z": lm.z}
+                            )
+
+                    # デバッグ用の描画（オプション）
+                    if pose_results.pose_landmarks:
+                        # Poseの鼻座標（緑）
+                        pose_nose = pose_results.pose_landmarks.landmark[
+                            mp.solutions.pose.PoseLandmark.NOSE
+                        ]
+                        pose_nose_coords = self.get_nose_coordinates(
+                            pose_nose, frame.shape
+                        )
+                        cv2.circle(frame, pose_nose_coords, 5, (0, 255, 0), -1)
+
+                        # FaceMeshの鼻座標（青） - 補正なしの元の座標
+                        face_nose = face_landmark.landmark[self.nose_tip_index]
+                        face_nose_coords = self.get_nose_coordinates(
+                            face_nose, frame.shape
+                        )
+                        cv2.circle(frame, face_nose_coords, 5, (255, 0, 0), -1)
+
+                        # 有効な場合の表示
+                        cv2.putText(
+                            frame,
+                            "Face data: Valid",
+                            (10, 60),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5,
+                            (0, 255, 0),  # 有効な場合は緑色
+                            1,
+                        )
+
                     mp_drawing.draw_landmarks(
                         image=frame,
                         landmark_list=face_landmark,
                         connections=mp_face_mesh.FACEMESH_TESSELATION,
                         landmark_drawing_spec=None,
-                        connection_drawing_spec=mp_drawing_styles
-                            .get_default_face_mesh_tesselation_style())
+                        connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_tesselation_style(),
+                    )
                 else:
-                    empty_landmarks = [{'x': None, 'y': None, 'z': None} for _ in range(config.face_landmark_number)]
-                    frame_landmarks['face'].extend(empty_landmarks)
+                    # 顔データが無効な場合（閾値を超えた場合）は顔データを取らない
+                    if face_results.multi_face_landmarks:
+                        cv2.putText(
+                            frame,
+                            "Face data: Rejected (offset too large)",
+                            (10, 60),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5,
+                            (0, 0, 255),  # 無効な場合は赤色
+                            1,
+                        )
+                    empty_landmarks = [
+                        {"x": None, "y": None, "z": None}
+                        for _ in range(config.face_landmark_number)
+                    ]
+                    frame_landmarks["face"].extend(empty_landmarks)
 
                 if pose_results.pose_landmarks:
                     for lm in pose_results.pose_landmarks.landmark:
-                        frame_landmarks['pose'].append({
-                            'x': lm.x,
-                            'y': lm.y,
-                            'z': lm.z
-                        })
+                        frame_landmarks["pose"].append(
+                            {"x": lm.x, "y": lm.y, "z": lm.z}
+                        )
                     mp_drawing.draw_landmarks(
                         image=frame,
                         landmark_list=pose_results.pose_landmarks,
                         connections=mp_pose.POSE_CONNECTIONS,
-                        landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
+                        landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style(),
+                    )
                 else:
-                    empty_landmarks = [{'x': None, 'y': None, 'z': None} for _ in range(config.pose_landmark_number)]
-                    frame_landmarks['pose'].extend(empty_landmarks)
+                    empty_landmarks = [
+                        {"x": None, "y": None, "z": None}
+                        for _ in range(config.pose_landmark_number)
+                    ]
+                    frame_landmarks["pose"].extend(empty_landmarks)
 
-                if hands_results.multi_hand_landmarks and hands_results.multi_handedness:
-                    for hand_landmark, handedness in zip(hands_results.multi_hand_landmarks, hands_results.multi_handedness):
+                if (
+                    hands_results.multi_hand_landmarks
+                    and hands_results.multi_handedness
+                ):
+                    for hand_landmark, handedness in zip(
+                        hands_results.multi_hand_landmarks,
+                        hands_results.multi_handedness,
+                    ):
                         # 手の種類（左/右）を判定
-                        hand_label = handedness.classification[0].label.lower()  # 'left' または 'right'
-                        hand_key = 'left_hand' if hand_label == 'left' else 'right_hand'
+                        hand_label = handedness.classification[
+                            0
+                        ].label.lower()  # 'left' または 'right'
+                        hand_key = "left_hand" if hand_label == "left" else "right_hand"
 
                         # ランドマークを追加
                         for lm in hand_landmark.landmark:
-                            frame_landmarks[hand_key].append({
-                                'x': lm.x,
-                                'y': lm.y,
-                                'z': lm.z
-                            })
+                            frame_landmarks[hand_key].append(
+                                {"x": lm.x, "y": lm.y, "z": lm.z}
+                            )
                         mp_drawing.draw_landmarks(
                             image=frame,
                             landmark_list=hand_landmark,
                             connections=mp_hands.HAND_CONNECTIONS,
                             landmark_drawing_spec=mp_drawing_styles.get_default_hand_landmarks_style(),
-                            connection_drawing_spec=mp_drawing_styles.get_default_hand_connections_style()
+                            connection_drawing_spec=mp_drawing_styles.get_default_hand_connections_style(),
                         )
-                
 
-                 # フレームにテキスト情報を追加
-                cv2.putText(frame, f'Frame: {frame_idx}', (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
+                # フレームにテキスト情報を追加
+                cv2.putText(
+                    frame,
+                    f"Frame: {frame_idx}",
+                    (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1,
+                    (255, 0, 0),
+                    2,
+                    cv2.LINE_AA,
+                )
 
                 # フレームを表示
-                cv2.imshow('MediaPipe Landmarks', frame)
+                cv2.imshow("MediaPipe Landmarks", frame)
 
                 # # ウィンドウを閉じるために 'q' キーを押す
-                if cv2.waitKey(1) & 0xFF == ord('q'):
+                if cv2.waitKey(1) & 0xFF == ord("q"):
                     print("ユーザーによって処理が中断されました。")
                     break
 
-                if len(frame_landmarks['left_hand']) == 0:
-                    empty_landmarks = [{'x': None, 'y': None, 'z': None} for _ in range(config.left_landmark_number)]
-                    frame_landmarks['left_hand'].extend(empty_landmarks)
-                if len(frame_landmarks['right_hand']) == 0:
-                    empty_landmarks = [{'x': None, 'y': None, 'z': None} for _ in range(config.right_landmark_number)]
-                    frame_landmarks['right_hand'].extend(empty_landmarks)
-
+                if len(frame_landmarks["left_hand"]) == 0:
+                    empty_landmarks = [
+                        {"x": None, "y": None, "z": None}
+                        for _ in range(config.left_landmark_number)
+                    ]
+                    frame_landmarks["left_hand"].extend(empty_landmarks)
+                if len(frame_landmarks["right_hand"]) == 0:
+                    empty_landmarks = [
+                        {"x": None, "y": None, "z": None}
+                        for _ in range(config.right_landmark_number)
+                    ]
+                    frame_landmarks["right_hand"].extend(empty_landmarks)
 
                 # フレームのランドマークデータをリストに追加
-                if len(frame_landmarks['face']) == config.face_landmark_number and len(frame_landmarks['pose'])==config.pose_landmark_number and len(frame_landmarks['left_hand'])==config.left_landmark_number and len(frame_landmarks['right_hand'])==config.right_landmark_number:
+                if (
+                    len(frame_landmarks["face"]) == config.face_landmark_number
+                    and len(frame_landmarks["pose"]) == config.pose_landmark_number
+                    and len(frame_landmarks["left_hand"]) == config.left_landmark_number
+                    and len(frame_landmarks["right_hand"])
+                    == config.right_landmark_number
+                ):
                     landmarks_list.append(frame_landmarks)
                 else:
-                    print(len(frame_landmarks['face']), len(frame_landmarks['pose']), len(frame_landmarks['left_hand']), len(frame_landmarks['right_hand']))
+                    print(
+                        len(frame_landmarks["face"]),
+                        len(frame_landmarks["pose"]),
+                        len(frame_landmarks["left_hand"]),
+                        len(frame_landmarks["right_hand"]),
+                    )
 
                 frame_idx += 1
                 if frame_idx % 100 == 0:

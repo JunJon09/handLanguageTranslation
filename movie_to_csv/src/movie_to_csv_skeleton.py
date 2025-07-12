@@ -82,8 +82,8 @@ def write_index_csv(path, person_number, file_name, sign):
         # #     sign = '12,2'
         # else:
         #     sign = str(int(sign[0]))
-        # value = [minimum_relation.minimum_continuous_hand_language_relation[key] for key in sign]
-        # text_sign = ",".join(value)
+        value = [minimum_relation.minimum_continuous_hand_language_relation[key] for key in sign]
+        text_sign = ",".join(value)
         write.writerow({"path": path, "person_number": person_number, "file_name": file_name, "sign": text_sign})
 
 def restore_nhk(file, i, j):
@@ -191,7 +191,7 @@ if __name__ == "__main__":
             #output_csv_path, person_number, csv_path, file_name, folder_name = restore_nhk(file, i, j)
             
             #LSA64
-            #output_csv_path, person_number, csv_path, file_name, folder_name = restore_lsa64(file)
+            output_csv_path, person_number, csv_path, file_name, folder_name = restore_lsa64(file)
 
             #minimum_Continuous_hand_language
             # output_csv_path, person_number, csv_path, file_name, folder_name = restore_minimum_continuous_hand_language(file, i, j)
@@ -203,7 +203,7 @@ if __name__ == "__main__":
             # output_csv_path, person_number, csv_path, file_name, folder_name = restore_test_data(file, i, j)
             
             #middle_data
-            output_csv_path, person_number, csv_path, file_name, folder_name = restore_middle_data(file, i, j)
+            #output_csv_path, person_number, csv_path, file_name, folder_name = restore_middle_data(file, i, j)
             
             write_csv(landmarks_list, output_csv_path, person_number)
             write_index_csv(path=csv_path, person_number=person_number, file_name=file_name, sign=folder_name.split("_"))
