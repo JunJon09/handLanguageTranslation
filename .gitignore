@@ -4,7 +4,6 @@
 *.pyc
 *pth
 *.env
-
 # 埋め込まれたGitリポジトリを除外
 mmpose_source/
 openface/

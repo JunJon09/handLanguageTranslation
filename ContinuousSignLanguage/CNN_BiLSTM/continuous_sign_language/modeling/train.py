@@ -71,7 +71,7 @@ def model_train():
         T_mult=2,  # 再開間隔の倍率
         eta_min=model_config.lr * 0.01,  # 最小学習率
     )
-
+    
     epochs = model_config.epochs
 
     train_losses = []

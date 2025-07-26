@@ -269,6 +269,7 @@ class CNNBiLSTMModel(nn.Module):
             blank_id=0,
         )
 
+
     def _initialize_weights(self):
         """
         重みの初期化を強化した関数 - WER改善のためブランクトークンバイアスを大幅に改善
