@@ -698,9 +698,495 @@ def create_simple_cnn1layer_with_residual(
     )
 
 
+class MultiScaleTemporalConv(nn.Module):
+    """
+    複数層構造で異なる受容野（20, 30, 40フレーム）を実現するMulti-Scale Temporal Convolution
+    """
+
+    def __init__(
+        self,
+        input_size,
+        hidden_size,
+        target_frames=[20, 30, 40],
+        dropout_rate=0.2,
+        use_parallel_processing=False,
+    ):
+        super(MultiScaleTemporalConv, self).__init__()
+
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.target_frames = target_frames
+        self.num_scales = len(target_frames)
+        self.use_parallel_processing = use_parallel_processing
+
+        # 各フレーム数に対応する多層畳み込みブランチを作成
+        self.conv_branches = nn.ModuleList()
+
+        for i, target_frame in enumerate(target_frames):
+            # 各スケールで同じ出力チャンネル数になるよう調整
+            scale_hidden_size = hidden_size // self.num_scales
+            if i == len(target_frames) - 1:  # 最後の層で端数を調整
+                scale_hidden_size = hidden_size - (hidden_size // self.num_scales) * (
+                    self.num_scales - 1
+                )
+
+            # 目標フレーム数に応じた多層構造を作成
+            branch = self._create_multi_layer_branch(
+                input_size, scale_hidden_size, target_frame, dropout_rate
+            )
+            self.conv_branches.append(branch)
+
+        # 特徴融合層
+        self.fusion_layer = nn.Sequential(
+            nn.Conv1d(hidden_size, hidden_size, kernel_size=1, bias=False),
+            nn.BatchNorm1d(hidden_size),
+            nn.ReLU(inplace=True),
+        )
+
+    def _create_multi_layer_branch(
+        self, input_size, output_size, target_frame, dropout_rate
+    ):
+        """目標フレーム数に達する多層ブランチを作成"""
+
+        if target_frame == 20:
+            # 20フレーム: K5 -> P2 -> K5 -> P2 (受容野: 1+4+2*(1+4) = 15程度)
+            return nn.Sequential(
+                nn.Conv1d(
+                    input_size,
+                    output_size,
+                    kernel_size=5,
+                    stride=1,
+                    padding=2,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+                nn.MaxPool1d(kernel_size=2, stride=1, padding=0),  # 時間次元を少し縮小
+                nn.Conv1d(
+                    output_size,
+                    output_size,
+                    kernel_size=5,
+                    stride=1,
+                    padding=2,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+                nn.MaxPool1d(
+                    kernel_size=2, stride=1, padding=0
+                ),  # さらに時間次元を縮小
+            )
+
+        elif target_frame == 30:
+            # 30フレーム: K7 -> P2 -> K7 -> P2 (より大きな受容野)
+            return nn.Sequential(
+                nn.Conv1d(
+                    input_size,
+                    output_size,
+                    kernel_size=7,
+                    stride=1,
+                    padding=3,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+                nn.MaxPool1d(kernel_size=2, stride=1, padding=0),
+                nn.Conv1d(
+                    output_size,
+                    output_size,
+                    kernel_size=7,
+                    stride=1,
+                    padding=3,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+                nn.MaxPool1d(kernel_size=2, stride=1, padding=0),
+            )
+
+        elif target_frame == 40:
+            # 40フレーム: K9 -> P2 -> K9 -> P2 -> K5 (最大の受容野)
+            return nn.Sequential(
+                nn.Conv1d(
+                    input_size,
+                    output_size,
+                    kernel_size=9,
+                    stride=1,
+                    padding=4,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+                nn.MaxPool1d(kernel_size=2, stride=1, padding=0),
+                nn.Conv1d(
+                    output_size,
+                    output_size,
+                    kernel_size=9,
+                    stride=1,
+                    padding=4,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+                nn.MaxPool1d(kernel_size=2, stride=1, padding=0),
+                nn.Conv1d(
+                    output_size,
+                    output_size,
+                    kernel_size=5,
+                    stride=1,
+                    padding=2,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+            )
+
+        else:
+            # デフォルト: 汎用的な構造
+            return nn.Sequential(
+                nn.Conv1d(
+                    input_size,
+                    output_size,
+                    kernel_size=5,
+                    stride=1,
+                    padding=2,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+                nn.Conv1d(
+                    output_size,
+                    output_size,
+                    kernel_size=5,
+                    stride=1,
+                    padding=2,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+            )
+
+    def forward(self, x):
+        # x: [B, C, T]
+        scale_features = []
+
+        if self.use_parallel_processing and torch.cuda.is_available():
+            # GPU並列処理版
+            device = x.device
+            streams = [torch.cuda.Stream() for _ in range(self.num_scales)]
+
+            # 各ブランチをCUDAストリームで並列実行
+            for i, (branch, stream) in enumerate(zip(self.conv_branches, streams)):
+                with torch.cuda.stream(stream):
+                    scale_feat = branch(x)
+                    scale_features.append(scale_feat)
+
+            # 全てのストリームの完了を待機
+            for stream in streams:
+                stream.synchronize()
+
+        else:
+            # 通常の逐次処理版
+            for branch in self.conv_branches:
+                scale_feat = branch(x)
+                scale_features.append(scale_feat)
+
+        # 時間次元の長さを最小値に揃える
+        min_T = min(feat.size(2) for feat in scale_features)
+        aligned_features = []
+        for feat in scale_features:
+            if feat.size(2) > min_T:
+                # 中央部分を切り出し
+                start_idx = (feat.size(2) - min_T) // 2
+                aligned_feat = feat[:, :, start_idx : start_idx + min_T]
+            else:
+                aligned_feat = feat
+            aligned_features.append(aligned_feat)
+
+        # チャンネル次元で結合
+        fused_features = torch.cat(aligned_features, dim=1)  # [B, hidden_size, T]
+
+        # 融合層で最終特徴を生成
+        output = self.fusion_layer(fused_features)
+
+        return output
+
+
+class DualMultiScaleTemporalConv(nn.Module):
+    """
+    2つの入力（骨格座標と距離座標）を受け取る Multi-Scale Temporal Convolution
+    DualCNNWithCTCと同様に2系統の特徴抽出を行い、MultiScaleTemporalConvの可変窓機能を組み合わせる
+    """
+
+    def __init__(
+        self,
+        skeleton_input_size,
+        spatial_input_size,
+        skeleton_hidden_size=256,
+        spatial_hidden_size=256,
+        fusion_hidden_size=512,
+        skeleton_kernel_sizes=[20, 30, 40],
+        spatial_kernel_sizes=[20, 30, 40],
+        dropout_rate=0.2,
+        num_classes=29,
+        blank_idx=0,
+        use_parallel_processing=False,
+    ):
+        super(DualMultiScaleTemporalConv, self).__init__()
+
+        self.skeleton_input_size = skeleton_input_size
+        self.spatial_input_size = spatial_input_size
+        self.skeleton_hidden_size = skeleton_hidden_size
+        self.spatial_hidden_size = spatial_hidden_size
+        self.fusion_hidden_size = fusion_hidden_size
+        self.num_classes = num_classes
+        self.blank_id = blank_idx
+        self.use_parallel_processing = use_parallel_processing
+
+        # 骨格データ用のMultiScaleTemporalConv
+        self.skeleton_multiscale = MultiScaleTemporalConv(
+            input_size=skeleton_input_size,
+            hidden_size=skeleton_hidden_size,
+            target_frames=skeleton_kernel_sizes,
+            dropout_rate=dropout_rate,
+            use_parallel_processing=use_parallel_processing,
+        )
+
+        # 距離データ用のMultiScaleTemporalConv
+        self.spatial_multiscale = MultiScaleTemporalConv(
+            input_size=spatial_input_size,
+            hidden_size=spatial_hidden_size,
+            target_frames=spatial_kernel_sizes,
+            dropout_rate=dropout_rate,
+            use_parallel_processing=use_parallel_processing,
+        )
+
+        # 特徴融合層
+        self.fusion_layer = nn.Sequential(
+            nn.Conv1d(
+                skeleton_hidden_size + spatial_hidden_size,
+                fusion_hidden_size,
+                kernel_size=1,
+                bias=False,
+            ),
+            nn.BatchNorm1d(fusion_hidden_size),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout_rate),
+        )
+
+        # 分類層
+        self.classifier = nn.Linear(fusion_hidden_size, num_classes)
+
+        # 重みの初期化
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        """重みの初期化"""
+        # Classifier層の初期化
+        nn.init.xavier_uniform_(self.classifier.weight)
+        if self.classifier.bias is not None:
+            nn.init.constant_(self.classifier.bias, 0.5)
+            # ブランクのバイアスを下げる
+            with torch.no_grad():
+                self.classifier.bias[self.blank_id] = -3.0
+
+    def forward(self, skeleton_feat, spatial_feature, lgt):
+        """
+        順伝播処理
+
+        Args:
+            skeleton_feat: 骨格特徴量 [B, skeleton_input_size, T]
+            spatial_feature: 距離特徴量 [B, spatial_input_size, T]
+            lgt: 各サンプルの系列長 [B]
+
+        Returns:
+            tuple: (融合特徴量[T, B, C], 分類ロジット[T, B, num_classes], 更新長[B])
+        """
+        # 各入力をMultiScaleで処理
+        skeleton_out = self.skeleton_multiscale(
+            skeleton_feat
+        )  # [B, skeleton_hidden_size, T]
+        spatial_out = self.spatial_multiscale(
+            spatial_feature
+        )  # [B, spatial_hidden_size, T]
+
+        # 時間次元の長さを揃える
+        min_T = min(skeleton_out.size(2), spatial_out.size(2))
+        skeleton_out = skeleton_out[:, :, :min_T]
+        spatial_out = spatial_out[:, :, :min_T]
+
+        # 特徴量の結合 (チャネル次元に沿って結合)
+        combined_feat = torch.cat(
+            [skeleton_out, spatial_out], dim=1
+        )  # [B, skeleton_hidden+spatial_hidden, T]
+
+        # 融合処理
+        fused_feat = self.fusion_layer(combined_feat)  # [B, fusion_hidden_size, T]
+
+        # 分類層適用
+        # [B, C, T] -> [B, T, C] -> classifier -> [B, T, num_classes] -> [T, B, num_classes]
+        logits = self.classifier(fused_feat.transpose(1, 2))  # [B, T, num_classes]
+        logits = logits.transpose(0, 1)  # [T, B, num_classes]
+
+        # 特徴量も同様に変換 [B, C, T] -> [T, B, C]
+        fused_feat_output = fused_feat.transpose(0, 2).transpose(1, 2)  # [T, B, C]
+
+        # 長さの更新（簡易版 - MultiScaleの畳み込みはsame paddingなので長さは基本的に保持される）
+        updated_lgt = self.calculate_updated_lengths(lgt, skeleton_feat.size(2), min_T)
+
+        return fused_feat_output, logits, updated_lgt
+
+    def calculate_updated_lengths(self, input_lengths, original_T, output_T):
+        """長さの更新計算"""
+        if original_T == output_T:
+            return input_lengths
+
+        # 比例計算
+        scale_ratio = output_T / original_T
+        updated_lengths = []
+
+        for length in input_lengths:
+            updated_length = max(1, int(length.item() * scale_ratio))
+            updated_lengths.append(updated_length)
+
+        device = input_lengths.device
+        return torch.tensor(updated_lengths, dtype=torch.long, device=device)
+
+
+class AdaptiveTemporalConv(nn.Module):
+    """
+    フレーム数に応じて動的にカーネルサイズを調整するTemporal Convolution
+    15, 25, 35フレームなど異なる受容野を持つ
+    """
+
+    def __init__(
+        self, input_size, hidden_size, target_frames=[15, 25, 35], dropout_rate=0.2
+    ):
+        super(AdaptiveTemporalConv, self).__init__()
+
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.target_frames = target_frames
+        self.num_branches = len(target_frames)
+
+        # 各目標フレーム数に対応するブランチを作成
+        self.branches = nn.ModuleList()
+
+        for target_frame in target_frames:
+            # 目標フレーム数に達するためのカーネル設計
+            branch_layers = self._design_branch(target_frame)
+            self.branches.append(branch_layers)
+
+        # 特徴融合
+        branch_output_size = hidden_size // self.num_branches
+        self.fusion_conv = nn.Conv1d(
+            hidden_size, hidden_size, kernel_size=1, bias=False
+        )
+        self.fusion_bn = nn.BatchNorm1d(hidden_size)
+        self.fusion_relu = nn.ReLU(inplace=True)
+
+    def _design_branch(self, target_frame):
+        """目標フレーム数に達するブランチを設計"""
+        branch_hidden = self.hidden_size // self.num_branches
+
+        if target_frame <= 15:
+            # 15フレーム: K5 -> K3 -> K3
+            layers = nn.Sequential(
+                nn.Conv1d(
+                    self.input_size, branch_hidden, kernel_size=5, padding=2, bias=False
+                ),
+                nn.BatchNorm1d(branch_hidden),
+                nn.ReLU(inplace=True),
+                nn.Conv1d(
+                    branch_hidden, branch_hidden, kernel_size=3, padding=1, bias=False
+                ),
+                nn.BatchNorm1d(branch_hidden),
+                nn.ReLU(inplace=True),
+                nn.Conv1d(
+                    branch_hidden, branch_hidden, kernel_size=3, padding=1, bias=False
+                ),
+                nn.BatchNorm1d(branch_hidden),
+                nn.ReLU(inplace=True),
+            )
+        elif target_frame <= 25:
+            # 25フレーム: K5 -> P2 -> K5 -> P2 (現在の設定)
+            layers = nn.Sequential(
+                nn.Conv1d(
+                    self.input_size, branch_hidden, kernel_size=5, padding=2, bias=False
+                ),
+                nn.BatchNorm1d(branch_hidden),
+                nn.ReLU(inplace=True),
+                nn.MaxPool1d(kernel_size=2),
+                nn.Conv1d(
+                    branch_hidden, branch_hidden, kernel_size=5, padding=2, bias=False
+                ),
+                nn.BatchNorm1d(branch_hidden),
+                nn.ReLU(inplace=True),
+                nn.MaxPool1d(kernel_size=2),
+            )
+        else:  # target_frame > 25
+            # 35フレーム: K7 -> K5 -> K3 (より大きな受容野)
+            layers = nn.Sequential(
+                nn.Conv1d(
+                    self.input_size, branch_hidden, kernel_size=7, padding=3, bias=False
+                ),
+                nn.BatchNorm1d(branch_hidden),
+                nn.ReLU(inplace=True),
+                nn.Conv1d(
+                    branch_hidden, branch_hidden, kernel_size=5, padding=2, bias=False
+                ),
+                nn.BatchNorm1d(branch_hidden),
+                nn.ReLU(inplace=True),
+                nn.Conv1d(
+                    branch_hidden, branch_hidden, kernel_size=3, padding=1, bias=False
+                ),
+                nn.BatchNorm1d(branch_hidden),
+                nn.ReLU(inplace=True),
+            )
+
+        return layers
+
+    def forward(self, x):
+        # x: [B, C, T]
+        branch_outputs = []
+
+        # 各ブランチで並列処理
+        for branch in self.branches:
+            branch_out = branch(x)
+            branch_outputs.append(branch_out)
+
+        # チャンネル次元で結合
+        fused = torch.cat(branch_outputs, dim=1)  # [B, hidden_size, T]
+
+        # 融合処理
+        output = self.fusion_conv(fused)
+        output = self.fusion_bn(output)
+        output = self.fusion_relu(output)
+
+        return output
+
+
 class TemporalConv(nn.Module):
     def __init__(
-        self, input_size, hidden_size, conv_type=2, use_bn=False, num_classes=-1
+        self,
+        input_size,
+        hidden_size,
+        conv_type=2,
+        use_bn=False,
+        num_classes=-1,
+        use_multiscale=True,
+        multiscale_kernels=[3, 5, 7, 9],
+        target_frames=[15, 25, 35],
+        use_parallel_processing=False,
     ):
         super(TemporalConv, self).__init__()
         self.use_bn = use_bn
@@ -708,80 +1194,108 @@ class TemporalConv(nn.Module):
         self.hidden_size = hidden_size
         self.num_classes = num_classes
         self.conv_type = conv_type
+        self.use_multiscale = use_multiscale
 
-        if self.conv_type == 0:
-            self.kernel_size = ["K3"]
-        elif self.conv_type == 1:
-            self.kernel_size = ["K5", "P2"]
-        elif self.conv_type == 2:
-            self.kernel_size = ["K5", "P2", "K5", "P2"]
-        elif self.conv_type == 3:
-            self.kernel_size = ["K5", "K5", "P2"]
-        elif self.conv_type == 4:
-            self.kernel_size = ["K5", "K5"]
-        elif self.conv_type == 5:
-            self.kernel_size = ["K5", "P2", "K5"]
-        elif self.conv_type == 6:
-            self.kernel_size = ["P2", "K5", "K5"]
-        elif self.conv_type == 7:
-            self.kernel_size = ["P2", "K7", "P2", "K7"]
-        elif self.conv_type == 8:
-            self.kernel_size = ["P2", "P2", "K5", "K5"]
-
-        modules = []
-        for layer_idx, ks in enumerate(self.kernel_size):
-            input_sz = (
-                self.input_size
-                if layer_idx == 0
-                or self.conv_type == 6
-                and layer_idx == 1
-                or self.conv_type == 7
-                and layer_idx == 1
-                or self.conv_type == 8
-                and layer_idx == 2
-                else self.hidden_size
+        if self.use_multiscale:
+            # Multi-Scale Temporal Convolutionを使用
+            self.temporal_conv = MultiScaleTemporalConv(
+                input_size=input_size,
+                hidden_size=hidden_size,
+                target_frames=target_frames,
+                use_parallel_processing=use_parallel_processing,
             )
-            if ks[0] == "P":
-                modules.append(nn.MaxPool1d(kernel_size=int(ks[1]), ceil_mode=False))
-            elif ks[0] == "K":
-                modules.append(
-                    nn.Conv1d(
-                        input_sz,
-                        self.hidden_size,
-                        kernel_size=int(ks[1]),
-                        stride=1,
-                        padding=0,
-                    )
-                    # MultiScale_TemporalConv(input_sz, self.hidden_size)
+            # または Adaptive Temporal Convolutionを使用
+            # self.temporal_conv = AdaptiveTemporalConv(
+            #     input_size=input_size,
+            #     hidden_size=hidden_size,
+            #     target_frames=target_frames
+            # )
+        else:
+            # 従来の固定カーネル方式
+            if self.conv_type == 0:
+                self.kernel_size = ["K3"]
+            elif self.conv_type == 1:
+                self.kernel_size = ["K5", "P2"]
+            elif self.conv_type == 2:
+                self.kernel_size = ["K5", "P2", "K5", "P2"]
+            elif self.conv_type == 3:
+                self.kernel_size = ["K5", "K5", "P2"]
+            elif self.conv_type == 4:
+                self.kernel_size = ["K5", "K5"]
+            elif self.conv_type == 5:
+                self.kernel_size = ["K5", "P2", "K5"]
+            elif self.conv_type == 6:
+                self.kernel_size = ["P2", "K5", "K5"]
+            elif self.conv_type == 7:
+                self.kernel_size = ["P2", "K7", "P2", "K7"]
+            elif self.conv_type == 8:
+                self.kernel_size = ["P2", "P2", "K5", "K5"]
+
+            modules = []
+            for layer_idx, ks in enumerate(self.kernel_size):
+                input_sz = (
+                    self.input_size
+                    if layer_idx == 0
+                    or self.conv_type == 6
+                    and layer_idx == 1
+                    or self.conv_type == 7
+                    and layer_idx == 1
+                    or self.conv_type == 8
+                    and layer_idx == 2
+                    else self.hidden_size
                 )
-                modules.append(nn.BatchNorm1d(self.hidden_size))
-                modules.append(nn.ReLU(inplace=True))
-        self.temporal_conv = nn.Sequential(*modules)
+                if ks[0] == "P":
+                    modules.append(
+                        nn.MaxPool1d(kernel_size=int(ks[1]), ceil_mode=False)
+                    )
+                elif ks[0] == "K":
+                    modules.append(
+                        nn.Conv1d(
+                            input_sz,
+                            self.hidden_size,
+                            kernel_size=int(ks[1]),
+                            stride=1,
+                            padding=0,
+                        )
+                    )
+                    modules.append(nn.BatchNorm1d(self.hidden_size))
+                    modules.append(nn.ReLU(inplace=True))
+            self.temporal_conv = nn.Sequential(*modules)
 
         if self.num_classes != -1:
             self.fc = nn.Linear(self.hidden_size, self.num_classes)
 
     def update_lgt(self, lgt):
-        feat_len = copy.deepcopy(lgt)
-        for ks in self.kernel_size:
-            if ks[0] == "P":
-                feat_len = torch.div(feat_len, 2)
-            else:
-                feat_len -= int(ks[1]) - 1
-                # pass
-        return feat_len
+        if self.use_multiscale:
+            # Multi-scaleの場合、paddingを使用しているので長さは変わらない
+            return lgt
+        else:
+            # 従来の方法での長さ更新
+            feat_len = copy.deepcopy(lgt)
+            for ks in self.kernel_size:
+                if ks[0] == "P":
+                    feat_len = torch.div(feat_len, 2)
+                else:
+                    feat_len -= int(ks[1]) - 1
+            return feat_len
 
     def forward(self, frame_feat, lgt):
         visual_feat = self.temporal_conv(frame_feat)
         lgt = self.update_lgt(lgt)
-        logits = (
-            None
-            if self.num_classes == -1
-            else self.fc(visual_feat.transpose(1, 2)).transpose(1, 2)
-        )
+
+        if self.num_classes != -1:
+            if self.use_multiscale:
+                # Multi-scaleの場合、visual_featは既に[B, C, T]形式
+                logits = self.fc(visual_feat.transpose(1, 2)).transpose(1, 2)
+            else:
+                # 従来の方法
+                logits = self.fc(visual_feat.transpose(1, 2)).transpose(1, 2)
+        else:
+            logits = None
+
         return {
             "visual_feat": visual_feat.permute(2, 0, 1),
-            "conv_logits": logits.permute(2, 0, 1),
+            "conv_logits": logits.permute(2, 0, 1) if logits is not None else None,
             "feat_len": lgt.cpu(),
         }
 
@@ -1122,4 +1636,3 @@ class DualCNNWithCTC(nn.Module):
 
         # 隠れ層の特徴量と出力のみを返す
         return fused_features, logits, updated_lgt
-

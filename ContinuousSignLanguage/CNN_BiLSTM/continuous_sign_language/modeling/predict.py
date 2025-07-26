@@ -40,6 +40,7 @@ if __name__ == "__main__":
         tren_add_bias=model_config.tren_add_bias,
         num_classes=out_channels,
         blank_idx=VOCAB - 1,
+        temporal_model_type=model_config.temporal_model_type,  # 追加
     )
 
     load_model, optimizer_loaded, epoch_loaded = functions.load_model(
@@ -55,7 +56,12 @@ if __name__ == "__main__":
     VISUALIZE_MULTILAYER_FEATURES = True  # True: 多層特徴量可視化, False: 可視化しない
     MULTILAYER_METHOD = "both"  # "tsne", "umap", "both"
 
-    if VISUALIZE_ATTENTION or GENERATE_CONFUSION_MATRIX or VISUALIZE_CONFIDENCE or VISUALIZE_MULTILAYER_FEATURES:
+    if (
+        VISUALIZE_ATTENTION
+        or GENERATE_CONFUSION_MATRIX
+        or VISUALIZE_CONFIDENCE
+        or VISUALIZE_MULTILAYER_FEATURES
+    ):
         analysis_options = []
         if VISUALIZE_ATTENTION:
             analysis_options.append("Attention & CTC可視化")
@@ -68,7 +74,9 @@ if __name__ == "__main__":
 
         print(f"🔍 拡張分析モードでテストを実行します")
         print(f"  有効な分析: {', '.join(analysis_options)}")
-        print(f"  多層特徴量分析: CNN空間パターン、BiLSTM時系列、Attention重要度、最終統合特徴量")
+        print(
+            f"  多層特徴量分析: CNN空間パターン、BiLSTM時系列、Attention重要度、最終統合特徴量"
+        )
 
         wer, test_times = functions.test_loop(
             dataloader=test_dataloader,

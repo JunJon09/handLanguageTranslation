@@ -3,11 +3,16 @@ import CNN_BiLSTM.continuous_sign_language.modeling.functions as functions
 import CNN_BiLSTM.models.cnn_bilstm_model as model
 import CNN_BiLSTM.continuous_sign_language.modeling.config as model_config
 import CNN_BiLSTM.continuous_sign_language.plots as plot
+import CNN_BiLSTM.continuous_sign_language.init_log as init_log
 import torch
 import os
 import numpy as np
+import logging
+
 
 def model_train():
+    logger, log_file = init_log.setup_logging()
+    logging.info("訓練を開始しました")
     train_hdf5files, val_hdf5files, test_hdf5files, key2token = dataset.read_dataset()
     train_dataloader, val_dataloader, test_dataloader, in_channels = (
         functions.set_dataloader(
@@ -45,24 +50,26 @@ def model_train():
         tren_add_bias=model_config.tren_add_bias,
         num_classes=out_channels,
         blank_idx=blank_id,
+        temporal_model_type=model_config.temporal_model_type,  # 追加
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # より低い学習率で開始し、学習の安定性を向上
-    initial_lr = model_config.lr * 0.1  # 元の学習率の1/10
-    optimizer = torch.optim.Adam(cnn_transformer.parameters(), lr=initial_lr)
+    # 過学習対策として適切な学習率とweight decayを設定
+    optimizer = torch.optim.Adam(
+        cnn_transformer.parameters(),
+        lr=model_config.lr,  # 直接config.pyの学習率を使用
+        weight_decay=(
+            model_config.weight_decay if hasattr(model_config, "weight_decay") else 8e-5
+        ),
+    )
 
-    # 学習率スケジューラを追加
-    # ウォームアップ後に徐々に学習率を下げるスケジューラ
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+    # 学習率スケジューラ: 第2回の設定に戻す
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
         optimizer,
-        max_lr=model_config.lr,  # 最大学習率は元の設定値
-        steps_per_epoch=len(train_dataloader),
-        epochs=model_config.epochs,
-        pct_start=0.3,  # 学習率がピークに達するまでのエポック割合
-        div_factor=10.0,  # 初期学習率 = max_lr / div_factor
-        final_div_factor=100.0,  # 最終学習率 = max_lr / (div_factor * final_div_factor)
+        T_0=10,  # 最初の再開までのエポック数
+        T_mult=2,  # 再開間隔の倍率
+        eta_min=model_config.lr * 0.01,  # 最小学習率
     )
 
     epochs = model_config.epochs
@@ -75,7 +82,9 @@ def model_train():
     # plotsディレクトリを作成
     os.makedirs("plots", exist_ok=True)
 
-    print(f"初期学習率: {initial_lr:.6f}, 最大学習率: {model_config.lr:.6f}")
+    print(
+        f"学習率: {model_config.lr:.6f}, Weight decay: {model_config.weight_decay if hasattr(model_config, 'weight_decay') else 1e-4:.6f}"
+    )
     print("Start training.")
     for epoch in range(epochs):
         print("-" * 80)
@@ -99,6 +108,7 @@ def model_train():
                 current_epoch=epoch + 1,
             )
             val_losses.append(val_loss)
+
             if min_loss > val_loss:  # lossが最小なのを保存
                 functions.save_model(
                     save_path=model_config.model_save_path,

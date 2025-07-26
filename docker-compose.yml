@@ -10,6 +10,7 @@ services:
       - ./csv/:/src/csv/
       - ./data/:/src/data/
       - ./csv_to_hdf5/src/:/src/csv_to_hdf5/
+      - ./openface/:/src/openface/
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ${XAUTHORITY:-$HOME/.Xauthority}:/root/.Xauthority:rw
     container_name: python_handlangage

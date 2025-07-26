@@ -82,8 +82,8 @@ def write_index_csv(path, person_number, file_name, sign):
         # #     sign = '12,2'
         # else:
         #     sign = str(int(sign[0]))
-        value = [minimum_relation.minimum_continuous_hand_language_relation[key] for key in sign]
-        text_sign = ",".join(value)
+        # value = [minimum_relation.minimum_continuous_hand_language_relation[key] for key in sign]
+        # text_sign = ",".join(value)
         write.writerow({"path": path, "person_number": person_number, "file_name": file_name, "sign": text_sign})
 
 def restore_nhk(file, i, j):
@@ -161,7 +161,7 @@ def restore_middle_data(file, i, j):
     file_split = file.split("/")
     folder_name = file_split[4] #i_apple_like
     file_name = str((i+1) * 1000 + j)
-    csv_path = "csv/middle_dataset/" + folder_name + "/" + file_name + ".csv"
+    csv_path = "csv/middle_dataset_30fps/" + folder_name + "/" + file_name + ".csv"
     output_csv_path = "../../" + csv_path
     if folder_name in train_list:
         person_number = "001"
@@ -171,13 +171,11 @@ def restore_middle_data(file, i, j):
         person_number = "003"
     else:
         raise ValueError(f"Unknown folder name: {folder_name}")
-    print(person_number)
     return output_csv_path, person_number, csv_path, file_name, folder_name
 
 
 if __name__ == "__main__":
     movie_files_list = get_movie_files()
-    print(len(movie_files_list), movie_files_list)
     MediaPipeClass = mediapipe_relation.MediaPipeClass()
     index_records = []
     for i, word_directory in enumerate(movie_files_list):
@@ -185,13 +183,12 @@ if __name__ == "__main__":
             landmarks_list = MediaPipeClass.get_skeleton_by_mediapipe(file)
             if len(landmarks_list) <= 10 :
                 continue
-            print(file)
             
             #NHK
             #output_csv_path, person_number, csv_path, file_name, folder_name = restore_nhk(file, i, j)
             
             #LSA64
-            output_csv_path, person_number, csv_path, file_name, folder_name = restore_lsa64(file)
+            #output_csv_path, person_number, csv_path, file_name, folder_name = restore_lsa64(file)
 
             #minimum_Continuous_hand_language
             # output_csv_path, person_number, csv_path, file_name, folder_name = restore_minimum_continuous_hand_language(file, i, j)
@@ -203,7 +200,7 @@ if __name__ == "__main__":
             # output_csv_path, person_number, csv_path, file_name, folder_name = restore_test_data(file, i, j)
             
             #middle_data
-            #output_csv_path, person_number, csv_path, file_name, folder_name = restore_middle_data(file, i, j)
+            output_csv_path, person_number, csv_path, file_name, folder_name = restore_middle_data(file, i, j)
             
             write_csv(landmarks_list, output_csv_path, person_number)
             write_index_csv(path=csv_path, person_number=person_number, file_name=file_name, sign=folder_name.split("_"))

@@ -5,5 +5,5 @@ left_landmark_number = 21
 right_landmark_number = 21
 
 #ファイル関係
-movie_directory_path = "../../data/lsa64_split/"
-index_file_path = "../../csv/lsa64_split/index.csv"
+movie_directory_path = "../../data/middle_dataset_30fps/"
+index_file_path = "../../csv/middle_dataset_30fps/index.csv"

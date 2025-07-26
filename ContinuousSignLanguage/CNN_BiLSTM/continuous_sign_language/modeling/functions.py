@@ -11,6 +11,7 @@ from CNN_BiLSTM.continuous_sign_language.plots import (
     plot_multilayer_feature_visualization,
     analyze_feature_separation,
 )
+import CNN_BiLSTM.continuous_sign_language.modeling.config as model_config
 from torchvision.transforms import Compose
 import os
 from functools import partial
@@ -156,8 +157,9 @@ def train_loop(
         # Back propagation.
         optimizer.zero_grad()
         loss.backward()
-        # 勾配クリッピングの値を小さくして安定性を向上
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
+        # 勾配クリッピング（過学習対策）
+        clip_norm = model_config.grad_clip_norm if hasattr(model_config, 'grad_clip_norm') else 0.5
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_norm)
         optimizer.step()
 
         train_loss += loss.item()
@@ -379,7 +381,7 @@ def test_loop(
 
             tokens = tokens.tolist()
             reference_text = [" ".join(map(str, seq)) for seq in tokens]
-
+            
             pred_words = [
                 [
                     middle_dataset_relation.middle_dataset_relation_dict[word]
@@ -391,134 +393,134 @@ def test_loop(
 
             conv_pred_words = [
                 [
-                    middle_dataset_relation.middle_dataset_relation_dict[word]
+                    middle_dataset_relation.middle_dataset_relation_dict.get(word, '<UNK>')
                     for word, idx in sample
                 ]
                 for sample in conv_pred
             ]
             hypothesis_text_conv = [" ".join(map(str, seq)) for seq in conv_pred_words]
 
-            # Attention & CTC & 信頼度可視化処理
-            if (visualize_attention or visualize_confidence) and visualize_count < max_visualize_samples:
-                # Attention & CTC可視化
-                success_attention, success_ctc = False, False
-                if visualize_attention:
-                    success_attention, success_ctc = process_attention_visualization(
-                        model=model,
-                        batch_idx=batch_idx,
-                        feature=feature,
-                        spatial_feature=spatial_feature,
-                        tokens=tokens,
-                        feature_pad_mask=feature_pad_mask,
-                        input_lengths=input_lengths,
-                        target_lengths=target_lengths,
-                        reference_text=reference_text,
-                        hypothesis_text=hypothesis_text,
-                        output_dir=output_dir,
-                        max_samples=max_visualize_samples,
-                    )                # 信頼度可視化
-                success_confidence, success_word_confidence = False, False
-                if visualize_confidence:
-                    # log_probsを準備
-                    log_probs = None
-                    try:
-                        # 既に取得したsequence_logitsからlog_probsを計算
-                        if sequence_logits is not None:
-                            log_probs = sequence_logits.log_softmax(-1)  # (T, B, C)
-                            logging.info(f"信頼度可視化用log_probsを取得しました。形状: {log_probs.shape}")
-                            # NaNや無限大値をチェック
-                            if torch.isnan(log_probs).any() or torch.isinf(log_probs).any():
-                                logging.warning("log_probsに無効な値が含まれています")
-                                log_probs = None
-                        else:
-                            logging.warning("sequence_logitsが利用できません")
-                    except Exception as e:
-                        logging.error(f"log_probs取得中にエラー: {e}")
-                        log_probs = None
+            # # Attention & CTC & 信頼度可視化処理
+            # if (visualize_attention or visualize_confidence) and visualize_count < max_visualize_samples:
+            #     # Attention & CTC可視化
+            #     success_attention, success_ctc = False, False
+            #     if visualize_attention:
+            #         success_attention, success_ctc = process_attention_visualization(
+            #             model=model,
+            #             batch_idx=batch_idx,
+            #             feature=feature,
+            #             spatial_feature=spatial_feature,
+            #             tokens=tokens,
+            #             feature_pad_mask=feature_pad_mask,
+            #             input_lengths=input_lengths,
+            #             target_lengths=target_lengths,
+            #             reference_text=reference_text,
+            #             hypothesis_text=hypothesis_text,
+            #             output_dir=output_dir,
+            #             max_samples=max_visualize_samples,
+            #         )                # 信頼度可視化
+            #     success_confidence, success_word_confidence = False, False
+            #     if visualize_confidence:
+            #         # log_probsを準備
+            #         log_probs = None
+            #         try:
+            #             # 既に取得したsequence_logitsからlog_probsを計算
+            #             if sequence_logits is not None:
+            #                 log_probs = sequence_logits.log_softmax(-1)  # (T, B, C)
+            #                 logging.info(f"信頼度可視化用log_probsを取得しました。形状: {log_probs.shape}")
+            #                 # NaNや無限大値をチェック
+            #                 if torch.isnan(log_probs).any() or torch.isinf(log_probs).any():
+            #                     logging.warning("log_probsに無効な値が含まれています")
+            #                     log_probs = None
+            #             else:
+            #                 logging.warning("sequence_logitsが利用できません")
+            #         except Exception as e:
+            #             logging.error(f"log_probs取得中にエラー: {e}")
+            #             log_probs = None
 
-                    # 予測結果を準備
-                    pred_for_confidence = []
-                    if len(pred) > 0 and len(pred[0]) > 0:
-                        # predの構造: [[(word_id, confidence), ...], ...]
-                        pred_for_confidence = [item[0] if isinstance(item, tuple) else item for item in pred[0]]
-                        logging.info(f"信頼度可視化用予測データ: {len(pred_for_confidence)}個の単語")
-                    else:
-                        logging.warning("予測結果が空のため、信頼度可視化をスキップします")
+            #         # 予測結果を準備
+            #         pred_for_confidence = []
+            #         if len(pred) > 0 and len(pred[0]) > 0:
+            #             # predの構造: [[(word_id, confidence), ...], ...]
+            #             pred_for_confidence = [item[0] if isinstance(item, tuple) else item for item in pred[0]]
+            #             logging.info(f"信頼度可視化用予測データ: {len(pred_for_confidence)}個の単語")
+            #         else:
+            #             logging.warning("予測結果が空のため、信頼度可視化をスキップします")
 
-                    # 信頼度可視化を実行（データが揃っている場合のみ）
-                    if log_probs is not None:
-                        success_confidence, success_word_confidence = (
-                            process_confidence_visualization(
-                                log_probs=log_probs,
-                                predictions=pred_for_confidence,
-                                batch_idx=batch_idx,
-                                output_dir=output_dir,
-                                vocab_dict=middle_dataset_relation.middle_dataset_relation_dict,
-                            )
-                        )
-                    else:
-                        logging.warning("log_probsが利用できないため、信頼度可視化をスキップします")
+            #         # 信頼度可視化を実行（データが揃っている場合のみ）
+            #         if log_probs is not None:
+            #             success_confidence, success_word_confidence = (
+            #                 process_confidence_visualization(
+            #                     log_probs=log_probs,
+            #                     predictions=pred_for_confidence,
+            #                     batch_idx=batch_idx,
+            #                     output_dir=output_dir,
+            #                     vocab_dict=middle_dataset_relation.middle_dataset_relation_dict,
+            #                 )
+            #             )
+            #         else:
+            #             logging.warning("log_probsが利用できないため、信頼度可視化をスキップします")
 
-                # 多層特徴量可視化
-                success_multilayer = False
-                if visualize_multilayer_features:
-                    try:
-                        success_multilayer = process_multilayer_feature_visualization(
-                            model=model,
-                            feature=feature,
-                            spatial_feature=spatial_feature,
-                            tokens=tokens,
-                            feature_pad_mask=feature_pad_mask,
-                            input_lengths=input_lengths,
-                            target_lengths=target_lengths,
-                            pred=pred,
-                            batch_idx=batch_idx,
-                            output_dir=output_dir,
-                            vocab_dict=middle_dataset_relation.middle_dataset_relation_dict,
-                            method=multilayer_method
-                        )
+            #     # 多層特徴量可視化
+            #     success_multilayer = False
+            #     if visualize_multilayer_features:
+            #         try:
+            #             success_multilayer = process_multilayer_feature_visualization(
+            #                 model=model,
+            #                 feature=feature,
+            #                 spatial_feature=spatial_feature,
+            #                 tokens=tokens,
+            #                 feature_pad_mask=feature_pad_mask,
+            #                 input_lengths=input_lengths,
+            #                 target_lengths=target_lengths,
+            #                 pred=pred,
+            #                 batch_idx=batch_idx,
+            #                 output_dir=output_dir,
+            #                 vocab_dict=middle_dataset_relation.middle_dataset_relation_dict,
+            #                 method=multilayer_method
+            #             )
                         
-                        if success_multilayer:
-                            logging.info("多層特徴量可視化が成功しました")
-                        else:
-                            logging.warning("多層特徴量可視化に失敗しました")
+            #             if success_multilayer:
+            #                 logging.info("多層特徴量可視化が成功しました")
+            #             else:
+            #                 logging.warning("多層特徴量可視化に失敗しました")
                             
-                    except Exception as e:
-                        logging.error(f"多層特徴量可視化でエラー: {e}")
-                        success_multilayer = False
+            #         except Exception as e:
+            #             logging.error(f"多層特徴量可視化でエラー: {e}")
+            #             success_multilayer = False
 
-                # 可視化結果をチェック
-                any_success = False
-                if visualize_attention:
-                    any_success = success_attention or success_ctc
-                if visualize_confidence:
-                    any_success = (
-                        any_success or success_confidence or success_word_confidence
-                    )
-                if visualize_multilayer_features:
-                    any_success = any_success or success_multilayer
+            #     # 可視化結果をチェック
+            #     any_success = False
+            #     if visualize_attention:
+            #         any_success = success_attention or success_ctc
+            #     if visualize_confidence:
+            #         any_success = (
+            #             any_success or success_confidence or success_word_confidence
+            #         )
+            #     if visualize_multilayer_features:
+            #         any_success = any_success or success_multilayer
 
-                if any_success:
-                    visualize_count += 1
-                    results = []
-                    if visualize_attention:
-                        results.append(
-                            f"Attention: {'成功' if success_attention else '失敗'}"
-                        )
-                        results.append(f"CTC: {'成功' if success_ctc else '失敗'}")
-                    if visualize_confidence:
-                        results.append(
-                            f"信頼度: {'成功' if success_confidence else '失敗'}"
-                        )
-                        results.append(
-                            f"単語信頼度: {'成功' if success_word_confidence else '失敗'}"
-                        )
-                    if visualize_multilayer_features:
-                        results.append(
-                            f"多層特徴量: {'成功' if success_multilayer else '失敗'}"
-                        )
+            #     if any_success:
+            #         visualize_count += 1
+            #         results = []
+            #         if visualize_attention:
+            #             results.append(
+            #                 f"Attention: {'成功' if success_attention else '失敗'}"
+            #             )
+            #             results.append(f"CTC: {'成功' if success_ctc else '失敗'}")
+            #         if visualize_confidence:
+            #             results.append(
+            #                 f"信頼度: {'成功' if success_confidence else '失敗'}"
+            #             )
+            #             results.append(
+            #                 f"単語信頼度: {'成功' if success_word_confidence else '失敗'}"
+            #             )
+            #         if visualize_multilayer_features:
+            #             results.append(
+            #                 f"多層特徴量: {'成功' if success_multilayer else '失敗'}"
+            #             )
 
-                    logging.info(f"可視化完了 ({', '.join(results)})")
+            #         logging.info(f"可視化完了 ({', '.join(results)})")
 
             reference_text_list.append(reference_text[0])
             hypothesis_text_list.append(hypothesis_text[0])

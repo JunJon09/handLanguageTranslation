@@ -3,11 +3,16 @@ import numpy as np
 from typing import Dict, Any
 import torch
 import math
+import logging
 
 def get_fullbody_landmarks():
+    # USE_FACE = np.sort(
+    #     np.unique(config.USE_LIP + config.USE_NOSE + config.USE_REYE + config.USE_LEYE)
+    # )
     USE_FACE = np.sort(
-        np.unique(config.USE_LIP + config.USE_NOSE + config.USE_REYE + config.USE_LEYE)
+        np.unique(config.USE_LIP_OUTER + config.USE_LIP_INNER + config.USE_LIP_CORNERS_CENTER + config.USE_NOSE + config.EAR_POINTS)
     )
+    print(f"使用する顔のランドマーク: {USE_FACE}", len(USE_FACE))
     use_landmarks = np.concatenate([USE_FACE, config.USE_LHAND, config.USE_POSE, config.USE_RHAND])
     use_landmarks_filtered = np.arange(len(use_landmarks))
     return use_landmarks_filtered, use_landmarks
@@ -53,21 +58,21 @@ class PartsBasedNormalization:
     def __init__(
         self,
         face_head=0,
-        face_num=76,
-        face_origin=[0, 2],
-        face_unit1=[7],
-        face_unit2=[42],
-        lhand_head=76,
+        face_num=44,
+        face_origin=[1, 2],
+        face_unit1=[21],
+        face_unit2=[40],
+        lhand_head=44,
         lhand_num=21,
         lhand_origin=[0, 2, 5, 9, 13, 17],
         lhand_unit1=[0],
         lhand_unit2=[2, 5, 9, 13, 17],
-        pose_head=76+21,
+        pose_head=44 + 21,
         pose_num=12,
         pose_origin=[0, 1],
         pose_unit1=[0],
         pose_unit2=[1],
-        rhand_head=76 + 21 + 12,
+        rhand_head=44 + 21 + 12,
         rhand_num=21,
         rhand_origin=[0, 2, 3, 9, 13, 17],
         rhand_unit1=[0],
@@ -92,6 +97,7 @@ class PartsBasedNormalization:
         self.lhand_unit1 = lhand_unit1
         self.lhand_unit2 = lhand_unit2
 
+
         self.pose_head = pose_head
         self.pose_num = pose_num
         self.pose_origin = pose_origin
@@ -111,10 +117,10 @@ class PartsBasedNormalization:
         return tmask
 
     def _calc_origin(self, feature, origin_lm):
-        # `[C, T, J] -> [C, T, 1]`
+        # `[C, T, 1]`
         origin = feature[:, :, origin_lm].mean(axis=-1, keepdims=True)
         if self.align_mode == "unique":
-            # `[C, T, 1] -> [C, 1, 1]`
+            # `[C, 1, 1]`
             mask = self._gen_tmask(origin)
             mask = mask.reshape([mask.shape[1]])
             if mask.any():
@@ -129,7 +135,7 @@ class PartsBasedNormalization:
         # The frame-wise unit lengths are unstable.
         # So, we calculate average unit length.
         # Extract.
-        # `[C, T, J] -> [C, T, 1]`
+        # `[C, T, 1]`
         unit1 = feature[:, :, unit_lm1].mean(axis=-1)
         unit2 = feature[:, :, unit_lm2].mean(axis=-1)
         # Mean square between target points.
@@ -177,11 +183,14 @@ class PartsBasedNormalization:
 
     def append_spatial_feature(self, feature):
         def calculate_basis_distances(basis, ip, tip):
-            return math.sqrt((tip[0] - basis[0]) ** 2 + (tip[1] - basis[1]) ** 2 + (tip[2] - basis[2]) ** 2) - math.sqrt(
-                (ip[0] - basis[0]) ** 2 + (ip[1] - basis[1]) ** 2 + (ip[2] - basis[2]) ** 2)
+            # return math.sqrt((tip[0] - basis[0]) ** 2 + (tip[1] - basis[1]) ** 2 + (tip[2] - basis[2]) ** 2) - math.sqrt(
+            #     (ip[0] - basis[0]) ** 2 + (ip[1] - basis[1]) ** 2 + (ip[2] - basis[2]) ** 2)
+            return math.sqrt((tip[0] - basis[0]) ** 2 + (tip[1] - basis[1]) ** 2) - math.sqrt((ip[0] - basis[0]) ** 2 + (ip[1] - basis[1]) ** 2)
+
 
         def calculate_adjacent_distances(tip1, tip2):
-            return math.sqrt((tip1[0] - tip2[0]) ** 2 + (tip1[1] - tip2[1]) ** 2 + (tip1[2] - tip2[2]) ** 2)
+            #return math.sqrt((tip1[0] - tip2[0]) ** 2 + (tip1[1] - tip2[1]) ** 2 + (tip1[2] - tip2[2]) ** 2)
+            return math.sqrt((tip1[0] - tip2[0]) ** 2 + (tip1[1] - tip2[1]) ** 2)
         
         def calculate_angles_with_axes(base1, base2, axis):
             """
@@ -262,31 +271,31 @@ class PartsBasedNormalization:
             tip_distance_middle_to_ring_feature = calculate_adjacent_distances(tip1=middle_tip, tip2=ring_tip)
             tip_distance_ring_to_pinky_feature = calculate_adjacent_distances(tip1=ring_tip, tip2=pinky_tip)
 
-            x_axis = np.array([1, 0, 0])
-            y_axis = np.array([0, 1, 0])
-            z_axis = np.array([0, 0, 1])
-            #手首と中指の付け根を結ぶベクトルとx軸との成す角
-            deg_wrist_with_middle_basis = calculate_angles_with_axes(base1=wrist, base2=middle_basis, axis=x_axis)
+            # x_axis = np.array([1, 0, 0])
+            # y_axis = np.array([0, 1, 0])
+            # z_axis = np.array([0, 0, 1])
+            # #手首と中指の付け根を結ぶベクトルとx軸との成す角
+            # deg_wrist_with_middle_basis = calculate_angles_with_axes(base1=wrist, base2=middle_basis, axis=x_axis)
 
-            #手首と親指の先を結ぶベクトルとz軸との成す角
-            deg_wrist_with_thumb_tip = calculate_angles_with_axes(base1=wrist, base2=thumb_tip, axis=z_axis)
+            # #手首と親指の先を結ぶベクトルとz軸との成す角
+            # deg_wrist_with_thumb_tip = calculate_angles_with_axes(base1=wrist, base2=thumb_tip, axis=z_axis)
 
-            #手首と小指の先を結ぶベクトルとz軸との成す角
-            deg_wrist_with_pinky_tip = calculate_angles_with_axes(base1=wrist, base2=pinky_tip, axis=z_axis)
+            # #手首と小指の先を結ぶベクトルとz軸との成す角
+            # deg_wrist_with_pinky_tip = calculate_angles_with_axes(base1=wrist, base2=pinky_tip, axis=z_axis)
 
-            #中指の付け根から各先を結ぶベクトルとx軸との成す角
-            deg_middle_basis_with_thumb_tip = calculate_angles_with_axes(base1=middle_basis, base2=thumb_tip, axis=x_axis)
-            deg_middle_basis_with_index_tip = calculate_angles_with_axes(base1=middle_basis, base2=index_tip, axis=x_axis)
-            deg_middle_basis_with_middle_tip = calculate_angles_with_axes(base1=middle_basis, base2=middle_tip, axis=x_axis)
-            deg_middle_basis_with_ring_tip = calculate_angles_with_axes(base1=middle_basis, base2=ring_tip, axis=x_axis)
-            deg_middle_basis_with_pinky_tip = calculate_angles_with_axes(base1=middle_basis, base2=pinky_tip, axis=x_axis)
+            # #中指の付け根から各先を結ぶベクトルとx軸との成す角
+            # deg_middle_basis_with_thumb_tip = calculate_angles_with_axes(base1=middle_basis, base2=thumb_tip, axis=x_axis)
+            # deg_middle_basis_with_index_tip = calculate_angles_with_axes(base1=middle_basis, base2=index_tip, axis=x_axis)
+            # deg_middle_basis_with_middle_tip = calculate_angles_with_axes(base1=middle_basis, base2=middle_tip, axis=x_axis)
+            # deg_middle_basis_with_ring_tip = calculate_angles_with_axes(base1=middle_basis, base2=ring_tip, axis=x_axis)
+            # deg_middle_basis_with_pinky_tip = calculate_angles_with_axes(base1=middle_basis, base2=pinky_tip, axis=x_axis)
 
-            #各指の第二関節から指先の線分とx軸との成す角
-            deg_thumb_dip_with_thumb_tip = calculate_angles_with_axes(base1=thumb_dip, base2=thumb_tip, axis=x_axis)
-            deg_index_dip_with_index_tip = calculate_angles_with_axes(base1=index_dip, base2=index_tip, axis=x_axis)
-            deg_middle_dip_with_middle_tip = calculate_angles_with_axes(base1=middle_dip, base2=middle_tip, axis=x_axis)
-            deg_ring_dip_with_ring_tip = calculate_angles_with_axes(base1=ring_dip, base2=ring_tip, axis=x_axis)
-            deg_pinky_dip_with_pinky_tip = calculate_angles_with_axes(base1=pinky_dip, base2=pinky_tip, axis=x_axis)
+            # #各指の第二関節から指先の線分とx軸との成す角
+            # deg_thumb_dip_with_thumb_tip = calculate_angles_with_axes(base1=thumb_dip, base2=thumb_tip, axis=x_axis)
+            # deg_index_dip_with_index_tip = calculate_angles_with_axes(base1=index_dip, base2=index_tip, axis=x_axis)
+            # deg_middle_dip_with_middle_tip = calculate_angles_with_axes(base1=middle_dip, base2=middle_tip, axis=x_axis)
+            # deg_ring_dip_with_ring_tip = calculate_angles_with_axes(base1=ring_dip, base2=ring_tip, axis=x_axis)
+            # deg_pinky_dip_with_pinky_tip = calculate_angles_with_axes(base1=pinky_dip, base2=pinky_tip, axis=x_axis)
             spatial_feature.append(
                 [
                     break_thumb_feature,
@@ -301,47 +310,66 @@ class PartsBasedNormalization:
                     tip_distance_index_to_middle_feature,
                     tip_distance_middle_to_ring_feature,
                     tip_distance_ring_to_pinky_feature,
-                    deg_wrist_with_middle_basis,
-                    deg_wrist_with_thumb_tip,
-                    deg_wrist_with_pinky_tip,
-                    deg_middle_basis_with_thumb_tip,
-                    deg_middle_basis_with_index_tip,
-                    deg_middle_basis_with_middle_tip,
-                    deg_middle_basis_with_ring_tip,
-                    deg_middle_basis_with_pinky_tip,
-                    deg_thumb_dip_with_thumb_tip,
-                    deg_index_dip_with_index_tip,
-                    deg_middle_dip_with_middle_tip,
-                    deg_ring_dip_with_ring_tip,
-                    deg_pinky_dip_with_pinky_tip,
+                    # deg_wrist_with_middle_basis,
+                    # deg_wrist_with_thumb_tip,
+                    # deg_wrist_with_pinky_tip,
+                    # deg_middle_basis_with_thumb_tip,
+                    # deg_middle_basis_with_index_tip,
+                    # deg_middle_basis_with_middle_tip,
+                    # deg_middle_basis_with_ring_tip,
+                    # deg_middle_basis_with_pinky_tip,
+                    # deg_thumb_dip_with_thumb_tip,
+                    # deg_index_dip_with_index_tip,
+                    # deg_middle_dip_with_middle_tip,
+                    # deg_ring_dip_with_ring_tip,
+                    # deg_pinky_dip_with_pinky_tip,
                 ]
             )
         return np.array(spatial_feature)
 
     def __call__(self, data: Dict[str, Any]) -> Dict[str, Any]:
         feature = data["feature"]
+        all_verifications_passed = True
+        
+        logging.info("🔍 座標変換・正規化処理開始")
+        
         if self.face_num > 0:
-            # feature[:, :, self.face_head : self.face_head + self.face_num] = 0
             face = feature[:, :, self.face_head : self.face_head + self.face_num]
             face = self._normalize(face, self.face_origin, self.face_unit1, self.face_unit2)
             feature[:, :, self.face_head : self.face_head + self.face_num] = face
+            
+            # 検証実行
+            if not self.verify_transformation_and_normalization(face, "face"):
+                all_verifications_passed = False
         
         if self.lhand_num > 0:
+            logging.info("🤚 左手部分の正規化処理中...")
             lhand = feature[:, :, self.lhand_head : self.lhand_head + self.lhand_num]
             l_spatial_feature = self.append_spatial_feature(lhand)
             l_spatial_feature = self.__normalize_spatial__(
                 feature, l_spatial_feature, self.lhand_unit1, self.lhand_unit2
             )
             lhand = self._normalize(lhand, self.lhand_origin, self.lhand_unit1, self.lhand_unit2)
-
             feature[:, :, self.lhand_head : self.lhand_head + self.lhand_num] = lhand
+            
+            # 検証実行
+            if not self.verify_transformation_and_normalization(lhand, "left_hand"):
+                all_verifications_passed = False
+                logging.error("❌ 左手の座標変換・正規化に失敗しました")
 
         if self.pose_num > 0:
+            logging.info("🧍 ポーズ部分の正規化処理中...")
             pose = feature[:, :, self.pose_head : self.pose_head + self.pose_num]
             pose = self._normalize(pose, self.pose_origin, self.pose_unit1, self.pose_unit2)
             feature[:, :, self.pose_head : self.pose_head + self.pose_num] = pose
+            
+            # 検証実行
+            if not self.verify_transformation_and_normalization(pose, "pose"):
+                all_verifications_passed = False
+                logging.error("❌ ポーズの座標変換・正規化に失敗しました")
 
         if self.rhand_num > 0:
+            logging.info("🤚 右手部分の正規化処理中...")
             rhand = feature[:, :, self.rhand_head : self.rhand_head + self.rhand_num]
             r_spatial_feature = self.append_spatial_feature(rhand)
             r_spatial_feature = self.__normalize_spatial__(
@@ -349,15 +377,209 @@ class PartsBasedNormalization:
             )
             rhand = self._normalize(rhand, self.rhand_origin, self.rhand_unit1, self.rhand_unit2)
             feature[:, :, self.rhand_head : self.rhand_head + self.rhand_num] = rhand
-        spatial_feature = np.concatenate((l_spatial_feature, r_spatial_feature), axis=1)
-        # 新しい軸を追加してブロードキャスト
-        # T, J = spatial_feature.shape
-        # broadcasted = np.broadcast_to(spatial_feature, (len(config.use_features), T, J))  # 形状 (3, T, J)
-        # feature = np.concatenate((feature, broadcasted), axis=2)
+            
+            # 検証実行
+            if not self.verify_transformation_and_normalization(rhand, "right_hand"):
+                all_verifications_passed = False
+                logging.error("❌ 右手の座標変換・正規化に失敗しました")
+                
+        # 最終検証結果のログ出力
+        if all_verifications_passed:
+            logging.info("🎉 すべての座標変換・正規化が正常に完了しました")
+        else:
+            logging.error("⚠️ 座標変換・正規化で異常が検出されました。データを確認してください。")
+
+        # 空間特徴量の結合
+        if 'l_spatial_feature' in locals() and 'r_spatial_feature' in locals():
+            spatial_feature = np.concatenate((l_spatial_feature, r_spatial_feature), axis=1)
+            data["spatial_feature"] = spatial_feature
+        
+        # Z-score標準化を適用（機械学習用の最終調整）
+        #feature = self.apply_zscore_normalization(feature)
+        
         data["feature"] = feature
         data["spatial_feature"] = spatial_feature
         return data
 
+    def verify_transformation_and_normalization(self, feature, part_name):
+        """座標変換と正規化の検証"""
+        logging.info(f"=== {part_name}の座標変換・正規化検証開始 ===")
+
+        all_valid = True
+        
+        # 1. 座標変換の数値的検証（原点チェック）
+        if part_name in ["face", "pose"]:
+            # 鼻を原点とした相対座標の検証
+            origin_indices = self.face_origin if part_name == "face" else self.pose_origin
+            origin_coords = feature[:, :, origin_indices].mean(axis=-1)  # [C, T]
+            
+            # フレーム平均での原点チェック
+            avg_origin = np.mean(origin_coords, axis=1)  # [C]
+            origin_distance = np.linalg.norm(avg_origin)
+            
+            logging.info(f"{part_name} 原点距離: {origin_distance:.8f}")
+            if origin_distance > 1e-5:  # 浮動小数点演算誤差のみ許容
+                logging.warning(f"❌ {part_name}の原点が正しく設定されていません: {origin_distance:.8f}")
+                all_valid = False
+            else:
+                logging.info(f"✅ {part_name}の原点設定: 正常")
+                
+        elif part_name in ["left_hand", "right_hand"]:
+            # 手首を原点とした相対座標の検証
+            hand_origin = self.lhand_origin if part_name == "left_hand" else self.rhand_origin
+            origin_coords = feature[:, :, hand_origin].mean(axis=-1)  # [C, T]
+            
+            # フレーム平均での原点チェック
+            avg_origin = np.mean(origin_coords, axis=1)  # [C]
+            origin_distance = np.linalg.norm(avg_origin)
+            
+            logging.info(f"{part_name} 手首原点距離: {origin_distance:.8f}")
+            if origin_distance > 1e-5:  # 浮動小数点演算誤差のみ許容
+                logging.warning(f"❌ {part_name}の手首原点が正しく設定されていません: {origin_distance:.8f}")
+                all_valid = False
+            else:
+                logging.info(f"✅ {part_name}の手首原点設定: 正常")
+        
+        # 2. 正規化の検証（単位長チェック）
+        if part_name == "face":
+            # 両耳間距離が1.0になっているかチェック
+            unit1_coords = feature[:, :, self.face_unit1].mean(axis=-1)  # [C, T]
+            unit2_coords = feature[:, :, self.face_unit2].mean(axis=-1)  # [C, T]
+            distances = np.linalg.norm(unit1_coords - unit2_coords, axis=0)  # [T]
+            
+            # 有効なフレームのみで平均計算
+            valid_mask = distances > 0
+            if valid_mask.any():
+                avg_distance = np.mean(distances[valid_mask])
+                logging.info(f"{part_name} 両耳間平均距離: {avg_distance:.8f}")
+                if abs(avg_distance - 1.0) > 0.1:  # 10%の誤差許容
+                    logging.warning(f"❌ {part_name}の正規化が不正確: {avg_distance:.8f} (期待値: 1.0)")
+                    all_valid = False
+                else:
+                    logging.info(f"✅ {part_name}の正規化: 正常")
+            else:
+                logging.info(f"🔺 {part_name}の有効なフレームが見つかりません")
+                #all_valid = False
+                
+        elif part_name == "pose":
+            # 両肩間距離が1.0になっているかチェック
+            unit1_coords = feature[:, :, self.pose_unit1].mean(axis=-1)  # [C, T]
+            unit2_coords = feature[:, :, self.pose_unit2].mean(axis=-1)  # [C, T]
+            distances = np.linalg.norm(unit1_coords - unit2_coords, axis=0)  # [T]
+            
+            valid_mask = distances > 0
+            if valid_mask.any():
+                avg_distance = np.mean(distances[valid_mask])
+                logging.info(f"{part_name} 両肩間平均距離: {avg_distance:.8f}")
+                if abs(avg_distance - 1.0) > 0.1:
+                    logging.warning(f"❌ {part_name}の正規化が不正確: {avg_distance:.8f} (期待値: 1.0)")
+                    all_valid = False
+                else:
+                    logging.info(f"✅ {part_name}の正規化: 正常")
+            else:
+                logging.info(f"🔺 {part_name}の有効なフレームが見つかりません")
+                #all_valid = False
+                
+        elif part_name in ["left_hand", "right_hand"]:
+            # 小指付け根から親指付け根までの距離が1.0になっているかチェック
+            hand_unit1 = self.lhand_unit1 if part_name == "left_hand" else self.rhand_unit1
+            hand_unit2 = self.lhand_unit2 if part_name == "left_hand" else self.rhand_unit2
+            
+            unit1_coords = feature[:, :, hand_unit1].mean(axis=-1)  # [C, T]
+            unit2_coords = feature[:, :, hand_unit2].mean(axis=-1)  # [C, T]
+            distances = np.linalg.norm(unit1_coords - unit2_coords, axis=0)  # [T]
+            
+            valid_mask = distances > 0
+            if valid_mask.any():
+                avg_distance = np.mean(distances[valid_mask])
+                logging.info(f"{part_name} 単位長平均距離: {avg_distance:.8f}")
+                if abs(avg_distance - 1.0) > 0.1:
+                    logging.warning(f"❌ {part_name}の正規化が不正確: {avg_distance:.8f} (期待値: 1.0)")
+                    all_valid = False
+                else:
+                    logging.info(f"✅ {part_name}の正規化: 正常")
+            else:
+                logging.info(f"🔺 {part_name}の有効なフレームが見つかりません")
+                #all_valid = False
+        
+        # 3. 統計的検証
+        coords_flat = feature.flatten()
+        valid_coords = coords_flat[~np.isnan(coords_flat)]
+        
+        if len(valid_coords) > 0:
+            coord_mean = np.mean(valid_coords)
+            coord_std = np.std(valid_coords)
+            coord_min = np.min(valid_coords)
+            coord_max = np.max(valid_coords)
+
+            logging.info(f"{part_name} 統計情報:")
+            logging.info(f"  平均: {coord_mean:.6f}")
+            logging.info(f"  標準偏差: {coord_std:.6f}")
+            logging.info(f"  範囲: [{coord_min:.6f}, {coord_max:.6f}]")
+
+            # 異常値チェック
+            if abs(coord_max) > 10 or abs(coord_min) > 10:
+                logging.warning(f"❌ {part_name}に異常な座標値が検出されました: [{coord_min:.6f}, {coord_max:.6f}]")
+                all_valid = False
+            else:
+                logging.info(f"✅ {part_name}の座標値範囲: 正常")
+        else:
+            logging.warning(f"❌ {part_name}に有効な座標データがありません")
+            all_valid = False
+
+        logging.info(f"=== {part_name}の検証結果: {'正常' if all_valid else '異常検出'} ===\n")
+        return all_valid
+    
+    def apply_zscore_normalization(self, feature):
+        """
+        各パーツごとにZ-score標準化を適用
+        物理的正規化後の特徴量を機械学習用に統一
+        """
+        logging.info("🎯 Z-score標準化処理開始")
+        
+        # 各パーツの範囲を定義
+        parts_info = [
+            ("face", self.face_head, self.face_num),
+            ("left_hand", self.lhand_head, self.lhand_num), 
+            ("pose", self.pose_head, self.pose_num),
+            ("right_hand", self.rhand_head, self.rhand_num)
+        ]
+        
+        normalized_feature = feature.copy()
+        
+        for part_name, head, num in parts_info:
+            if num > 0:  # パーツが存在する場合のみ処理
+                # パーツの特徴量を抽出
+                part_feature = feature[:, :, head:head+num]  # [C, T, J]
+                
+                # 有効な値のみを対象にして統計を計算
+                valid_mask = ~np.isnan(part_feature) & (part_feature != 0.0)
+                if valid_mask.any():
+                    valid_values = part_feature[valid_mask]
+                    
+                    # 平均と標準偏差を計算
+                    mean = np.mean(valid_values)
+                    std = np.std(valid_values)
+                    
+                    if std > 1e-8:  # 標準偏差がほぼ0でない場合のみ正規化
+                        # Z-score標準化適用
+                        part_normalized = (part_feature - mean) / std
+                        
+                        # 無効な値は元の値を保持
+                        part_normalized[~valid_mask] = part_feature[~valid_mask]
+                        
+                        # 正規化結果を元の配列に書き戻し
+                        normalized_feature[:, :, head:head+num] = part_normalized
+                        
+                        logging.info(f"✅ {part_name}のZ-score標準化完了 - 平均: {mean:.6f} → 0.000000, 標準偏差: {std:.6f} → 1.000000")
+                    else:
+                        logging.warning(f"⚠️ {part_name}の標準偏差が小さすぎるため標準化をスキップ")
+                else:
+                    logging.warning(f"⚠️ {part_name}に有効なデータが見つかりません")
+        
+        logging.info("🎉 Z-score標準化処理完了")
+        return normalized_feature
+    
 class ToTensor:
     """Convert data to torch.Tensor."""
 
