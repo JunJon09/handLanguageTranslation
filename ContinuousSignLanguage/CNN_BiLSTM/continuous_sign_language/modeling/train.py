@@ -4,6 +4,7 @@ import CNN_BiLSTM.models.cnn_bilstm_model as model
 import CNN_BiLSTM.continuous_sign_language.modeling.config as model_config
 import CNN_BiLSTM.continuous_sign_language.plots as plot
 import CNN_BiLSTM.continuous_sign_language.init_log as init_log
+
 import torch
 import os
 import numpy as np
@@ -129,6 +130,7 @@ def model_train():
     plot.train_val_loss_plot(
         train_losses_array, val_losses_array, model_config.eval_every_n_epochs
     )
+
 
 
 if __name__ == "__main__":

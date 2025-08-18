@@ -380,14 +380,14 @@ class CNNBiLSTMModel(nn.Module):
             )
             exit(1)
 
-        # 相関学習モジュールの適用
-        if hasattr(self, "_visualize_attention") and self._visualize_attention:
-            cnn_out, attention_weights = self.spatial_correlation(
-                cnn_out, return_attention=True
-            )
-            self.last_attention_weights = attention_weights  # 可視化用に保存
-        else:
-            cnn_out = self.spatial_correlation(cnn_out)
+        # # # 相関学習モジュールの適用
+        # if hasattr(self, "_visualize_attention") and self._visualize_attention:
+        #     cnn_out, attention_weights = self.spatial_correlation(
+        #         cnn_out, return_attention=True
+        #     )
+        #     self.last_attention_weights = attention_weights  # 可視化用に保存
+        # else:
+        #     cnn_out = self.spatial_correlation(cnn_out)
 
         # BiLSTM/Transformerの実行
         tm_outputs = self.temporal_model(cnn_out, updated_lgt)

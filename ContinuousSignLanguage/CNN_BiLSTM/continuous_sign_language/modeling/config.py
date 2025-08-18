@@ -63,3 +63,6 @@ augment_scale_range = (0.99, 1.01)  # スケール変動を小さくして安定
 augment_probability = 0.5  # 確率を下げて過度な拡張を防ぐ
 augment_rotation_range = 1.0  # 回転範囲を小さくして精度向上
 augment_translation_range = 0.01  # 平行移動範囲を小さくして安定化
+
+# モデル使用パス
+model_use_path = "CNN_BiLSTM/models/CNN_BiLSTM_model.pth"

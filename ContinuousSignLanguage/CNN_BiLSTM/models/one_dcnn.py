@@ -747,8 +747,63 @@ class MultiScaleTemporalConv(nn.Module):
         self, input_size, output_size, target_frame, dropout_rate
     ):
         """目標フレーム数に達する多層ブランチを作成"""
+        print(target_frame, "***************")
+        if target_frame == 10:
+            # 10フレーム: K3 -> K3 (小さな受容野)
+            return nn.Sequential(
+                nn.Conv1d(
+                    input_size,
+                    output_size,
+                    kernel_size=3,
+                    stride=1,
+                    padding=1,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+                nn.Conv1d(
+                    output_size,
+                    output_size,
+                    kernel_size=3,
+                    stride=1,
+                    padding=1,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+            )
 
-        if target_frame == 20:
+        elif target_frame == 15:
+            # 15フレーム: K3 -> P2 -> K5 (中小受容野)
+            return nn.Sequential(
+                nn.Conv1d(
+                    input_size,
+                    output_size,
+                    kernel_size=3,
+                    stride=1,
+                    padding=1,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+                nn.MaxPool1d(kernel_size=2, stride=1, padding=0),
+                nn.Conv1d(
+                    output_size,
+                    output_size,
+                    kernel_size=5,
+                    stride=1,
+                    padding=2,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+            )
+
+        elif target_frame == 20:
             # 20フレーム: K5 -> P2 -> K5 -> P2 (受容野: 1+4+2*(1+4) = 15程度)
             return nn.Sequential(
                 nn.Conv1d(
@@ -779,6 +834,34 @@ class MultiScaleTemporalConv(nn.Module):
                 ),  # さらに時間次元を縮小
             )
 
+        elif target_frame == 25:
+            # 25フレーム: K5 -> P2 -> K7 (中程度の受容野)
+            return nn.Sequential(
+                nn.Conv1d(
+                    input_size,
+                    output_size,
+                    kernel_size=5,
+                    stride=1,
+                    padding=2,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+                nn.MaxPool1d(kernel_size=2, stride=1, padding=0),
+                nn.Conv1d(
+                    output_size,
+                    output_size,
+                    kernel_size=7,
+                    stride=1,
+                    padding=3,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+            )
+
         elif target_frame == 30:
             # 30フレーム: K7 -> P2 -> K7 -> P2 (より大きな受容野)
             return nn.Sequential(
@@ -806,6 +889,45 @@ class MultiScaleTemporalConv(nn.Module):
                 nn.ReLU(inplace=True),
                 nn.Dropout(dropout_rate),
                 nn.MaxPool1d(kernel_size=2, stride=1, padding=0),
+            )
+
+        elif target_frame == 35:
+            # 35フレーム: K7 -> P2 -> K9 -> K5 (大きな受容野)
+            return nn.Sequential(
+                nn.Conv1d(
+                    input_size,
+                    output_size,
+                    kernel_size=7,
+                    stride=1,
+                    padding=3,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+                nn.MaxPool1d(kernel_size=2, stride=1, padding=0),
+                nn.Conv1d(
+                    output_size,
+                    output_size,
+                    kernel_size=9,
+                    stride=1,
+                    padding=4,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
+                nn.Conv1d(
+                    output_size,
+                    output_size,
+                    kernel_size=5,
+                    stride=1,
+                    padding=2,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(output_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout_rate),
             )
 
         elif target_frame == 40:
@@ -934,8 +1056,8 @@ class DualMultiScaleTemporalConv(nn.Module):
         skeleton_hidden_size=256,
         spatial_hidden_size=256,
         fusion_hidden_size=512,
-        skeleton_kernel_sizes=[20, 30, 40],
-        spatial_kernel_sizes=[20, 30, 40],
+        skeleton_kernel_sizes=[15, 20, 25],
+        spatial_kernel_sizes=[15, 20, 25],
         dropout_rate=0.2,
         num_classes=29,
         blank_idx=0,

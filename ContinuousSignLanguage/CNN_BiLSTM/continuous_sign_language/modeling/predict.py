@@ -17,7 +17,7 @@ if __name__ == "__main__":
     )
     VOCAB = len(key2token)
     out_channels = VOCAB
-    save_path = model_config.model_save_path
+    save_path = model_config.model_use_path
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     cnn_transformer = model.CNNBiLSTMModel(
@@ -46,6 +46,20 @@ if __name__ == "__main__":
     load_model, optimizer_loaded, epoch_loaded = functions.load_model(
         cnn_transformer, save_path, device
     )
+
+    # Transformerファインチューニングモードの設定確認
+    if (
+        hasattr(model_config, "fine_tune_transformer_only")
+        and model_config.fine_tune_transformer_only
+    ):
+        if model_config.temporal_model_type in [
+            "transformer",
+            "multiscale_transformer",
+        ]:
+            logging.info(
+                "🎯 予測時：Transformerファインチューニングモードで訓練されたモデルを使用"
+            )
+        # 予測時はフリーズ設定は不要（全層を使用して予測）
 
     # ========================================
     # 🔍 可視化・分析設定

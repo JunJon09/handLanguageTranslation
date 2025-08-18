@@ -553,7 +553,7 @@ class MediaPipeClass:
                             connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_tesselation_style(),
                         )
                         display_face_landmarks = cv2.resize(
-                            face_with_landmarks, (200, 300)
+                            face_with_landmarks, (250, 300)
                         )
                         cv2.imshow("Face Region with Landmarks", display_face_landmarks)
                 else:
