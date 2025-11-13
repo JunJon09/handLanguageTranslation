@@ -10,7 +10,7 @@ import logging
 
 if __name__ == "__main__":
     mode = "test"
-    logger, log_file = init_log.setup_logging(mode=mode)
+    init_log.setup_logging(mode=mode)
     
     # パフォーマンス監視初期化
     monitor = pm.PerformanceMonitor(monitor_interval=1.0)

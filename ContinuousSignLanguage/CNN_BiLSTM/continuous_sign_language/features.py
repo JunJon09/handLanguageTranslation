@@ -6,15 +6,12 @@ import math
 import logging
 
 def get_fullbody_landmarks():
-    # USE_FACE = np.sort(
-    #     np.unique(config.USE_LIP + config.USE_NOSE + config.USE_REYE + config.USE_LEYE)
-    # )
     USE_FACE = np.sort(
         np.unique(config.USE_LIP_OUTER + config.USE_LIP_INNER + config.USE_LIP_CORNERS_CENTER + config.USE_NOSE + config.EAR_POINTS)
     )
-    print(f"使用する顔のランドマーク: {USE_FACE}", len(USE_FACE))
     use_landmarks = np.concatenate([USE_FACE, config.USE_LHAND, config.USE_POSE, config.USE_RHAND])
     use_landmarks_filtered = np.arange(len(use_landmarks))
+    print(f"顔: {len(USE_FACE)}, 手: {len(config.USE_LHAND) + len(config.USE_RHAND)}, 体: {len(config.USE_POSE)}, 使用する合計ランドマーク数: {len(use_landmarks)}")
     return use_landmarks_filtered, use_landmarks
 
 class SelectLandmarksAndFeature:

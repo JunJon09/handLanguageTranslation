@@ -13,7 +13,7 @@ import logging
 
 def model_train():
     mode = "train"
-    logger, log_file = init_log.setup_logging(mode=mode)
+    init_log.setup_logging(mode=mode)
     logging.info("訓練を開始しました")
 
     train_hdf5files, val_hdf5files, key2token = dataset.read_dataset(mode=mode)
