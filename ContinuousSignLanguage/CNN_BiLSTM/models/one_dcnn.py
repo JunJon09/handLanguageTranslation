@@ -1056,8 +1056,8 @@ class DualMultiScaleTemporalConv(nn.Module):
         skeleton_hidden_size=256,
         spatial_hidden_size=256,
         fusion_hidden_size=512,
-        skeleton_kernel_sizes=[15, 20, 25],
-        spatial_kernel_sizes=[15, 20, 25],
+        skeleton_kernel_sizes=[10, 15, 20, 25, 30],
+        spatial_kernel_sizes=[10, 15, 20, 25, 30],
         dropout_rate=0.2,
         num_classes=29,
         blank_idx=0,
@@ -1447,6 +1447,7 @@ class DualFeatureTemporalConv(nn.Module):
         conv_type=2,
         use_bn=True,
         num_classes=-1,
+        dropout_rate=0.2,  # Dropoutレートを追加
     ):
         super(DualFeatureTemporalConv, self).__init__()
         self.use_bn = use_bn
@@ -1457,6 +1458,7 @@ class DualFeatureTemporalConv(nn.Module):
         self.fusion_hidden_size = fusion_hidden_size
         self.num_classes = num_classes
         self.conv_type = conv_type
+        self.dropout_rate = dropout_rate  # Dropoutレートを保存
 
         # 骨格座標用の時間的畳み込み層
         self.skeleton_conv = self._create_temporal_conv(
@@ -1480,6 +1482,7 @@ class DualFeatureTemporalConv(nn.Module):
             ),
             nn.BatchNorm1d(self.fusion_hidden_size),
             nn.ReLU(inplace=True),
+            nn.Dropout1d(p=self.dropout_rate),  # CNNの特徴マップにDropout1dを適用
         )
 
         # 分類層 (num_classes > 0 の場合)
@@ -1534,6 +1537,8 @@ class DualFeatureTemporalConv(nn.Module):
                 )
                 modules.append(nn.BatchNorm1d(hidden_size))
                 modules.append(nn.ReLU(inplace=True))
+                # 畳み込み層の後にDropout1dを追加
+                modules.append(nn.Dropout1d(p=self.dropout_rate))
 
         return nn.Sequential(*modules)
 
@@ -1674,7 +1679,11 @@ class DualCNNWithCTC(nn.Module):
             conv_type=conv_type,
             use_bn=True,
             num_classes=-1,  # 特徴抽出のみを行う
+            dropout_rate=dropout_rate,  # Dropoutレートを渡す
         )
+
+        # Dropout層を追加 - 特徴抽出後の正則化
+        self.dropout = nn.Dropout(p=dropout_rate)
 
         # 融合特徴量からクラス予測を行う分類層
         self.classifier = nn.Linear(fusion_hidden_size, num_classes)
@@ -1692,22 +1701,24 @@ class DualCNNWithCTC(nn.Module):
 
     def _initialize_weights(self):
         """
-        重みの初期化を改良した関数
+        重みの初期化を改良した関数 - logits値の安定化
         """
-        # Classifier層の初期化 - より均一な分布を目指す
+        # Classifier層の初期化 - logits値を小さく保つ
         nn.init.xavier_uniform_(
-            self.classifier.weight, gain=0.01
-        )  # gainを小さくして初期値を抑制
+            self.classifier.weight, gain=0.001  # さらに小さくしてlogits値を抑制
+        )
 
         if self.classifier.bias is not None:
-            # バイアスは最初はゼロに近い値に設定
-            nn.init.constant_(self.classifier.bias, 0)
+            # バイアスは最初は小さな負の値に設定
+            nn.init.constant_(self.classifier.bias, -0.5)
 
-            # ブランク以外のクラスにわずかに正のバイアスを与える
+            # ブランクトークンのバイアスを他より少し低くする
             with torch.no_grad():
-                for i in range(self.classifier.bias.size(0)):
-                    if i != self.blank_id:  # ブランク以外のクラス
-                        self.classifier.bias[i] += 0.1  # 小さな正のバイアス
+                self.classifier.bias[self.blank_id] = -1.0  # ブランクを抑制
+                
+        print(f"DualCNNWithCTC: 分類器重み初期化完了")
+        print(f"  重み範囲: {self.classifier.weight.min().item():.4f} ~ {self.classifier.weight.max().item():.4f}")
+        print(f"  バイアス範囲: {self.classifier.bias.min().item():.4f} ~ {self.classifier.bias.max().item():.4f}")
 
     def forward(
         self,
@@ -1749,9 +1760,27 @@ class DualCNNWithCTC(nn.Module):
         # 特徴長の更新
         updated_lgt = cnn_output["feat_len"]
 
+        # Dropoutを適用してから分類層へ
+        # [T, B, C] -> Dropout -> [T, B, C]
+        dropped_features = self.dropout(fused_features)
+
         # 分類層で各フレームのクラス予測を行う
         # [T, B, C] -> [T, B, num_classes]
-        logits = self.classifier(fused_features)
+        logits = self.classifier(dropped_features)
+        
+        # 適応的logits制御：訓練の進行に応じて制限を緩和
+        with torch.no_grad():
+            logits_std = logits.std()
+            logits_max_abs = logits.abs().max()
+            
+        # 標準偏差が大きすぎる場合のみソフトクリッピング適用
+        if logits_std > 3.0 or logits_max_abs > 8.0:
+            # 動的な制限範囲（最大値に応じて調整）
+            clip_range = min(8.0, max(5.0, logits_max_abs.item() * 0.8))
+            logits = clip_range * torch.tanh(logits / clip_range)
+        
+        # 軽微な正規化（分布を少し平滑化）
+        logits = logits * 0.95  # 5%の縮小で過信を防ぐ
 
         # # ログソフトマックスを適用
         # log_probs = self.log_softmax(logits)  # [T, B, num_classes]

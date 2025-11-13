@@ -21,14 +21,10 @@ def read_dataset(input_dir=config.read_dataset_dir):
     ]
     val_hdf5files = [fin for fin in hdf5_files if config.val_number in fin.name]
     test_hdf5files = [fin for fin in hdf5_files if config.test_number in fin.name]
+
     dictionary = [fin for fin in files if ".json" in fin.name][0]
     with open(dictionary, "r") as f:
-        key2token = json.load(f)
-
-    VOCAB = len(key2token)
-    key2token["<pad>"] = VOCAB + 1
-    key2token["<blank>"] = 0
-
+            key2token = json.load(f)
     return train_hdf5files, val_hdf5files, test_hdf5files, key2token
 
 

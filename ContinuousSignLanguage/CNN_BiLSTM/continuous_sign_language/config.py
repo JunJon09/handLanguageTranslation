@@ -4,7 +4,7 @@ from pathlib import Path
 from datetime import datetime
 
 # dataset
-read_dataset_dir = "../hdf5/middle_dataset_30fps/"
+read_dataset_dir = "../hdf5/phoenix_2014_t/"
 test_number = "003"
 val_number = "002"
 

@@ -1,7 +1,6 @@
 import CNN_BiLSTM.continuous_sign_language.features as features
 import CNN_BiLSTM.continuous_sign_language.config as config
 import CNN_BiLSTM.continuous_sign_language.dataset as dataset
-import CNN_BiLSTM.continuous_sign_language.modeling.middle_dataset_relation as middle_dataset_relation
 from CNN_BiLSTM.continuous_sign_language.plots import (
     plot_attention_matrix,
     plot_attention_statistics,
@@ -22,7 +21,7 @@ import numpy as np
 import torch
 from jiwer import wer, cer, mer
 import logging
-
+import CNN_BiLSTM.continuous_sign_language.modeling.phoenx as phoenx
 
 def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
     _, use_landmarks = features.get_fullbody_landmarks()
@@ -145,14 +144,8 @@ def train_loop(
             target_lengths=target_lengths,
             mode="train",
         )
-        print("loss", loss)
         pred_end = time.perf_counter()
         pred_times.append([frames, pred_end - pred_start])
-
-        # NaNチェック - エラーが発生した場合の対策
-        if torch.isnan(loss).any():
-            print("警告: NaNが検出されました。このバッチをスキップします")
-            continue
 
         # Back propagation.
         optimizer.zero_grad()
@@ -229,7 +222,7 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
             input_lengths = feature_lengths
             target_lengths = target_lengths = torch.sum(tokens_pad_mask, dim=1)
             pred_start = time.perf_counter()
-            val_loss, log_probs = model.forward(
+            loss, log_probs = model.forward(
                 src_feature=feature,
                 spatial_feature=spatial_feature,
                 tgt_feature=tokens,
@@ -242,10 +235,9 @@ def val_loop(dataloader, model, device, return_pred_times=False, current_epoch=N
             )
             pred_end = time.perf_counter()
             pred_times.append([frames, pred_end - pred_start])
-            print("val_loss", val_loss)
             # Compute loss.
             # Preds do not include <start>, so skip that of tokens.
-
+            val_loss += loss.item()
             tokens = tokens.tolist()
             # reference_text = [" ".join(map(str, seq)) for seq in tokens]
             # hypothesis_text = [" ".join(map(str, seq)) for seq in log_probs]
@@ -384,7 +376,7 @@ def test_loop(
             
             pred_words = [
                 [
-                    middle_dataset_relation.middle_dataset_relation_dict[word]
+                    phoenx.phon[word]
                     for word, idx in sample
                 ]
                 for sample in pred
@@ -393,7 +385,7 @@ def test_loop(
 
             conv_pred_words = [
                 [
-                    middle_dataset_relation.middle_dataset_relation_dict.get(word, '<UNK>')
+                    phoenx.phon.get(word, '<UNK>')
                     for word, idx in sample
                 ]
                 for sample in conv_pred
@@ -537,11 +529,14 @@ def test_loop(
 
     logging.info(f"参照文リスト: {reference_text_list}")
     logging.info(f"予測文リスト: {hypothesis_text_list}")
-    logging.info(f"テスト完了. 時間:{time.perf_counter()-start:.2f}秒")
 
     # WER評価指標の計算
     wer_metrics = calculate_wer_metrics(reference_text_list, hypothesis_text_list)
     awer = wer_metrics["awer"] if wer_metrics else 0.0
+
+    print(f"テスト完了. 時間:{time.perf_counter()-start:.2f}秒")
+    print("テストサイズ:", size)
+    print(f"テスト平均時間: {(time.perf_counter()-start)/size:.4f}秒/サンプル")
     pred_times = np.array(pred_times)
 
     # Attention & CTC可視化の後処理
@@ -771,7 +766,7 @@ def visualize_ctc_alignment(
             # middle_dataset_relation_dictの逆引き
             reverse_dict = {
                 v: k
-                for k, v in middle_dataset_relation.middle_dataset_relation_dict.items()
+                for k, v in phoenx.phon.items()
             }
             decoded_tokens = [
                 reverse_dict.get(word, 0) for word in pred_words if word in reverse_dict
@@ -790,7 +785,7 @@ def visualize_ctc_alignment(
             log_probs=ctc_log_probs,
             decoded_sequence=decoded_tokens,
             target_sequence=target_tokens,
-            vocab_dict=middle_dataset_relation.middle_dataset_relation_dict,
+            vocab_dict=phoenx.phon,
             blank_id=0,
             sample_idx=0,
             save_dir=ctc_output_dir,

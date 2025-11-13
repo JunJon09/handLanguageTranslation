@@ -21,3 +21,4 @@ japanize-matplotlib
 seaborn>=0.11.0
 scikit-learn>=1.0.0
 umap
+psutil

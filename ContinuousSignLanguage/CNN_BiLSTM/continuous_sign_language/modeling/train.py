@@ -32,6 +32,7 @@ def model_train():
 
     # モデルの初期化
     cnn_transformer = model.CNNBiLSTMModel(
+        vocabulary=key2token,
         in_channels=in_channels,
         kernel_size=model_config.kernel_size,
         cnn_out_channels=model_config.cnn_out_channels,

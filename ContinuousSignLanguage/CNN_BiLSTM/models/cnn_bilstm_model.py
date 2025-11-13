@@ -130,6 +130,7 @@ class HierarchicalTemporalModule(nn.Module):
 class CNNBiLSTMModel(nn.Module):
     def __init__(
         self,
+        vocabulary,
         in_channels,
         kernel_size,
         cnn_out_channels,
@@ -158,24 +159,25 @@ class CNNBiLSTMModel(nn.Module):
         self.temporal_model_type = temporal_model_type
 
         # 1DCNNモデル
-        self.cnn_model = cnn.DualCNNWithCTC(
+        # self.cnn_model = cnn.DualCNNWithCTC(
+        #     skeleton_input_size=in_channels,
+        #     hand_feature_size=24,
+        #     skeleton_hidden_size=cnn_out_channels//2,
+        #     hand_hidden_size=cnn_out_channels//2,
+        #     fusion_hidden_size=cnn_out_channels,
+        #     num_classes=num_classes,
+        #     blank_idx=blank_idx,
+        # ).to("cpu")
+
+        self.cnn_model = cnn.DualMultiScaleTemporalConv(
             skeleton_input_size=in_channels,
-            hand_feature_size=24,
-            skeleton_hidden_size=cnn_out_channels//2,
-            hand_hidden_size=cnn_out_channels//2,
+            spatial_input_size=24,
+            skeleton_hidden_size=cnn_out_channels // 2,
+            spatial_hidden_size=cnn_out_channels // 2,
             fusion_hidden_size=cnn_out_channels,
             num_classes=num_classes,
             blank_idx=blank_idx,
-        ).to("cpu")
-
-        # self.cnn_model = cnn.DualMultiScaleTemporalConv(
-        #     skeleton_input_size=in_channels,
-        #     spatial_input_size=24,
-        #     skeleton_hidden_size=cnn_out_channels // 2,
-        #     spatial_hidden_size=cnn_out_channels // 2,
-        #     fusion_hidden_size=cnn_out_channels,
-        #     blank_idx=blank_idx,
-        # )
+        )
 
         self.loss = dict()
         self.criterion_init()
@@ -193,6 +195,7 @@ class CNNBiLSTMModel(nn.Module):
                 input_size=cnn_out_channels,
                 hidden_size=cnn_out_channels * 2,  # 隠れ層のサイズ
                 num_layers=4,
+                dropout=0.5,  # 過学習対策: 0.3 → 0.5に強化
                 bidirectional=True,
             )
             temporal_output_size = cnn_out_channels * 2
@@ -229,38 +232,9 @@ class CNNBiLSTMModel(nn.Module):
         # 重みの初期化を行う - コメントアウトを解除
         self._initialize_weights()
 
+        gloss_dict = {word: [i] for i, word in enumerate(vocabulary)}
+
         # ログソフトマックス（CTC損失用）
-        gloss_dict = {
-            "<blank>": [0],
-            "i": [1],
-            "you": [2],
-            "he": [3],
-            "teacher": [4],
-            "friend": [5],
-            "today": [6],
-            "tomorrow": [7],
-            "school": [8],
-            "hospital": [9],
-            "station": [10],
-            "go": [11],
-            "come": [12],
-            "drink": [13],
-            "like": [14],
-            "dislike": [15],
-            "busy": [16],
-            "use": [17],
-            "meet": [18],
-            "where": [19],
-            "question": [20],
-            "pp": [21],
-            "with": [22],
-            "water": [23],
-            "food": [24],
-            "money": [25],
-            "apple": [26],
-            "banana": [27],
-            "<pad>": [28],
-        }
         # 言語モデルを使用するgreedyデコーダーを使用
         self.decoder = decode.Decode(
             gloss_dict=gloss_dict,
@@ -358,15 +332,18 @@ class CNNBiLSTMModel(nn.Module):
             print("警告: 入力src_featureに無限大の値が検出されました")
 
         # CNNモデルの実行
-        cnn_out, cnn_logit, updated_lgt = self.cnn_model(
-            skeleton_feat=src_feature, hand_feat=spatial_feature, lgt=input_lengths
-        )
-
+        logging.info("=== CNNモデル処理開始 ===")
         # cnn_out, cnn_logit, updated_lgt = self.cnn_model(
-        #     skeleton_feat=src_feature,
-        #     spatial_feature=spatial_feature,
-        #     lgt=input_lengths,
+        #     skeleton_feat=src_feature, hand_feat=spatial_feature, lgt=input_lengths
         # )
+
+        cnn_out, cnn_logit, updated_lgt = self.cnn_model(
+            skeleton_feat=src_feature,
+            spatial_feature=spatial_feature,
+            lgt=input_lengths,
+        )
+        
+        logging.info(f"CNN出力完了 - logits範囲: {cnn_logit.min():.2f}~{cnn_logit.max():.2f}")
 
         # 実際のCNN出力形状に基づいて長さを計算
         updated_lgt = self.calculate_updated_lengths(input_lengths, T, cnn_out.shape[0])
@@ -381,25 +358,23 @@ class CNNBiLSTMModel(nn.Module):
             exit(1)
 
         # # # 相関学習モジュールの適用
-        # if hasattr(self, "_visualize_attention") and self._visualize_attention:
-        #     cnn_out, attention_weights = self.spatial_correlation(
-        #         cnn_out, return_attention=True
-        #     )
-        #     self.last_attention_weights = attention_weights  # 可視化用に保存
-        # else:
-        #     cnn_out = self.spatial_correlation(cnn_out)
+        if hasattr(self, "_visualize_attention") and self._visualize_attention:
+            cnn_out, attention_weights = self.spatial_correlation(
+                cnn_out, return_attention=True
+            )
+            self.last_attention_weights = attention_weights  # 可視化用に保存
+        else:
+            cnn_out = self.spatial_correlation(cnn_out)
 
         # BiLSTM/Transformerの実行
+        logging.info("=== 時系列モデル処理開始 ===")
         tm_outputs = self.temporal_model(cnn_out, updated_lgt)
-        outputs = self.classifier(tm_outputs["predictions"])  # (batch, T', num_classes)
-
-        # ブランクトークン抑制 - 非常に強い場合のみ
-        if mode == "test" and blank_id is not None:
-            # テスト時のみブランクを直接抑制
-            with torch.no_grad():
-                # ブランクの確率を下げる（ロジット値を小さくする）
-                outputs[:, :, blank_id] -= 5.0  # 強制的に値を下げる
-                cnn_logit[:, :, blank_id] -= 5.0
+        predictions = tm_outputs["predictions"]
+        
+        # 分類器の実行
+        outputs = self.classifier(predictions)
+        
+        logging.info(f"最終出力形状: {outputs.shape}, 範囲: {outputs.min():.2f}~{outputs.max():.2f}")
 
         # 予測確率分布の分析
         with torch.no_grad():
@@ -462,42 +437,92 @@ class CNNBiLSTMModel(nn.Module):
         conv_loss = 0
         seq_loss = 0
         dist_loss = 0
+        
+        # ロジットとラベル情報の取得
+        conv_logits = ret_dict["conv_logits"]
+        seq_logits = ret_dict["sequence_logits"]
+        feat_len = ret_dict["feat_len"]
+        
+        logging.info("=== CTC損失計算開始 ===")
+        
+        # 損失計算
         for k, weight in self.loss_weights.items():
             if k == "ConvCTC":
-                conv_loss += (
-                    weight
-                    * self.loss["CTCLoss"](
-                        ret_dict["conv_logits"].log_softmax(-1),
+                try:
+                    # CTC損失計算の前にlogitsの健全性をチェック
+                    logits_std = conv_logits.std()
+                    logits_max_abs = conv_logits.abs().max()
+                    
+                    ctc_loss = self.loss["CTCLoss"](
+                        conv_logits.log_softmax(-1),
                         label.cpu().int(),
-                        ret_dict["feat_len"].cpu().int(),
+                        feat_len.cpu().int(),
                         label_lgt.cpu().int(),
-                    ).mean()
-                )
+                    )
+                    
+                    # zero_infinityで0になった場合の補正
+                    if torch.any(ctc_loss == 0.0) and (logits_std > 3.0 or logits_max_abs > 8.0):
+                        # 極端なlogitsが原因で0になった場合、ペナルティを課す
+                        logits_penalty = torch.clamp(logits_max_abs - 5.0, min=0.0) ** 2
+                        ctc_loss = ctc_loss + logits_penalty * 0.1
+                        logging.warning(f"極端なlogits検出: std={logits_std:.2f}, max_abs={logits_max_abs:.2f}, ペナルティ追加")
+                    
+                    conv_loss += weight * ctc_loss.mean()
+                    
+                except Exception as e:
+                    logging.error(f"ConvCTC損失計算エラー: {e}")
+                    conv_loss = torch.tensor(0.0, device=conv_logits.device, requires_grad=True)
+                    
             elif k == "SeqCTC":
-                seq_loss += (
-                    weight
-                    * self.loss["CTCLoss"](
-                        ret_dict["sequence_logits"].log_softmax(-1),
+                try:
+                    # SeqCTC損失でも同様の補正を適用
+                    seq_logits_std = seq_logits.std()
+                    seq_logits_max_abs = seq_logits.abs().max()
+                    
+                    ctc_loss = self.loss["CTCLoss"](
+                        seq_logits.log_softmax(-1),
                         label.cpu().int(),
-                        ret_dict["feat_len"].cpu().int(),
+                        feat_len.cpu().int(),
                         label_lgt.cpu().int(),
-                    ).mean()
-                )
+                    )
+                    
+                    # zero_infinityで0になった場合の補正
+                    if torch.any(ctc_loss == 0.0) and (seq_logits_std > 3.0 or seq_logits_max_abs > 8.0):
+                        logits_penalty = torch.clamp(seq_logits_max_abs - 5.0, min=0.0) ** 2
+                        ctc_loss = ctc_loss + logits_penalty * 0.1
+                        logging.warning(f"Seq極端なlogits検出: std={seq_logits_std:.2f}, max_abs={seq_logits_max_abs:.2f}")
+                    
+                    seq_loss += weight * ctc_loss.mean()
+                    
+                except Exception as e:
+                    logging.error(f"SeqCTC損失計算エラー: {e}")
+                    seq_loss = torch.tensor(0.0, device=seq_logits.device, requires_grad=True)
+                    
             elif k == "Dist":
-                dist_loss += weight * self.loss["distillation"](
-                    ret_dict["conv_logits"],
-                    ret_dict["sequence_logits"].detach(),
-                    use_blank=False,
-                )
+                try:
+                
+                    dist_loss += weight * self.loss["distillation"](
+                        conv_logits,
+                        seq_logits.detach(),
+                        use_blank=False,
+                    )
+                   
+                except Exception as e:
+                    logging.error(f"蒸留損失計算エラー: {e}")
+                    dist_loss = torch.tensor(0.0, device=conv_logits.device, requires_grad=True)
+        
         loss = conv_loss + seq_loss + dist_loss
-        logging.info(
-            f"損失: ConvCTC={conv_loss.item()}, SeqCTC={seq_loss.item()}, Distillation={dist_loss.item()}"
-        )
-        logging.info(f"総損失: {loss.item()}")
+        logging.info(f"損失: Conv={conv_loss.item():.3f}, Seq={seq_loss.item():.3f}, Dist={dist_loss.item():.3f}, 総計={loss.item():.3f}")
         return loss
 
     def criterion_init(self):
-        self.loss["CTCLoss"] = torch.nn.CTCLoss(reduction="none", zero_infinity=False)
+        # zero_infinity=Trueに変更してinf値を0に置換
+        # blank_indexを明示的に指定してブランクトークンの扱いを最適化
+        self.loss["CTCLoss"] = torch.nn.CTCLoss(
+            blank=self.blank_id, 
+            reduction="none", 
+            zero_infinity=True
+        )
         # 蒸留温度を下げてLoss安定化とWER改善
         self.loss["distillation"] = criterions.SeqKD(T=3)  # T=8から3に下げる
         return self.loss

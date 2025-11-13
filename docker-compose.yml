@@ -13,7 +13,7 @@ services:
       - ./openface/:/src/openface/
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ${XAUTHORITY:-$HOME/.Xauthority}:/root/.Xauthority:rw
-    container_name: python_handlangage
+    container_name: python_handlangage_phone
     stdin_open: true
     environment:
       - DISPLAY=host.docker.internal:0.0
