@@ -23,7 +23,7 @@ from jiwer import wer, cer, mer
 import logging
 import CNN_BiLSTM.continuous_sign_language.modeling.phoenx as phoenx
 
-def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
+def set_dataloader(key2token, mode_hdf5files, val_hdf5files, mode):
     _, use_landmarks = features.get_fullbody_landmarks()
     trans_select_feature = features.SelectLandmarksAndFeature(
         landmarks=use_landmarks, features=config.use_features
@@ -34,30 +34,6 @@ def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
     )
 
     pre_transforms = Compose([trans_select_feature, trans_repnan, trans_norm])
-    train_transforms = Compose([features.ToTensor()])
-
-    val_transforms = Compose([features.ToTensor()])
-
-    test_transforms = Compose([features.ToTensor()])
-
-    train_dataset = dataset.HDF5Dataset(
-        train_hdf5files,
-        pre_transforms=pre_transforms,
-        transforms=train_transforms,
-        load_into_ram=config.load_into_ram,
-    )
-    val_dataset = dataset.HDF5Dataset(
-        val_hdf5files,
-        pre_transforms=pre_transforms,
-        transforms=val_transforms,
-        load_into_ram=config.load_into_ram,
-    )
-    test_dataset = dataset.HDF5Dataset(
-        test_hdf5files,
-        pre_transforms=pre_transforms,
-        transforms=test_transforms,
-        load_into_ram=config.load_into_ram,
-    )
 
     feature_shape = (len(config.use_features), -1, len(use_landmarks))
     token_shape = (-1,)
@@ -69,31 +45,63 @@ def set_dataloader(key2token, train_hdf5files, val_hdf5files, test_hdf5files):
         feature_padding_val=0.0,
         token_padding_val=key2token["<pad>"],
     )
-
-    train_dataloader = DataLoader(
-        train_dataset,
-        batch_size=config.batch_size,
-        collate_fn=merge_fn,
-        num_workers=num_workers,
-        shuffle=True,
-    )
-    val_dataloader = DataLoader(
-        val_dataset,
-        batch_size=config.batch_size,
-        collate_fn=merge_fn,
-        num_workers=num_workers,
-        shuffle=False,
-    )
-    test_dataloader = DataLoader(
-        test_dataset,
-        batch_size=1,
-        collate_fn=merge_fn,
-        num_workers=num_workers,
-        shuffle=False,
-    )
     in_channels = len(use_landmarks) * len(config.use_features)
 
-    return train_dataloader, val_dataloader, test_dataloader, in_channels
+    val_transforms = Compose([features.ToTensor()])
+
+    val_dataset = dataset.HDF5Dataset(
+            val_hdf5files,
+            pre_transforms=pre_transforms,
+            transforms=val_transforms,
+            load_into_ram=config.load_into_ram,
+    )
+
+    val_dataloader = DataLoader(
+            val_dataset,
+            batch_size=config.batch_size,
+            collate_fn=merge_fn,
+            num_workers=num_workers,
+            shuffle=False,
+    )
+    if mode == "train":
+        train_transforms = Compose([features.ToTensor()])
+
+        train_dataset = dataset.HDF5Dataset(
+            mode_hdf5files,
+            pre_transforms=pre_transforms,
+            transforms=train_transforms,
+            load_into_ram=config.load_into_ram,
+        )
+
+        train_dataloader = DataLoader(
+            train_dataset,
+            batch_size=config.batch_size,
+            collate_fn=merge_fn,
+            num_workers=num_workers,
+            shuffle=True,
+        )
+        return train_dataloader, val_dataloader, in_channels
+
+    elif mode == "test":
+        test_transforms = Compose([features.ToTensor()])
+
+        test_dataset = dataset.HDF5Dataset(
+            mode_hdf5files,
+            pre_transforms=pre_transforms,
+            transforms=test_transforms,
+            load_into_ram=config.load_into_ram,
+        )
+
+        test_dataloader = DataLoader(
+            test_dataset,
+            batch_size=1,
+            collate_fn=merge_fn,
+            num_workers=num_workers,
+            shuffle=False,
+        )
+
+        return test_dataloader, val_dataloader, in_channels
+
 
 
 def train_loop(

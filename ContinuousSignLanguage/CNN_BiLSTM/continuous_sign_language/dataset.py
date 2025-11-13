@@ -9,23 +9,23 @@ from torchvision.transforms import Compose
 import copy
 import torch
 
-def read_dataset(input_dir=config.read_dataset_dir):
+def read_dataset(input_dir=config.read_dataset_dir, mode="train"):
     dataset_dir = Path(input_dir)
     files = list(dataset_dir.iterdir())
     hdf5_files = [fin for fin in files if ".hdf5" in fin.name]
-
-    train_hdf5files = [
-        fin
-        for fin in hdf5_files
-        if config.test_number not in fin.name and config.val_number not in fin.name
-    ]
-    val_hdf5files = [fin for fin in hdf5_files if config.val_number in fin.name]
-    test_hdf5files = [fin for fin in hdf5_files if config.test_number in fin.name]
-
     dictionary = [fin for fin in files if ".json" in fin.name][0]
     with open(dictionary, "r") as f:
             key2token = json.load(f)
-    return train_hdf5files, val_hdf5files, test_hdf5files, key2token
+
+    val_hdf5files = [fin for fin in hdf5_files if config.val_number in fin.name]
+
+    if mode == "train":
+        train_hdf5files = [fin for fin in hdf5_files if config.test_number not in fin.name and config.val_number not in fin.name]
+        return train_hdf5files, val_hdf5files, key2token
+
+    elif mode == "test":
+        test_hdf5files = [fin for fin in hdf5_files if config.test_number in fin.name]
+        return test_hdf5files, val_hdf5files,  key2token
 
 
 class HDF5Dataset(Dataset):

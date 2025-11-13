@@ -9,7 +9,8 @@ import logging
 
 
 if __name__ == "__main__":
-    logger, log_file = init_log.setup_logging()
+    mode = "test"
+    logger, log_file = init_log.setup_logging(mode=mode)
     
     # パフォーマンス監視初期化
     monitor = pm.PerformanceMonitor(monitor_interval=1.0)
@@ -19,12 +20,9 @@ if __name__ == "__main__":
     # パフォーマンス監視開始
     monitor.start_monitoring()
     
-    train_hdf5files, val_hdf5files, test_hdf5files, key2token = dataset.read_dataset()
-    train_dataloader, val_dataloader, test_dataloader, in_channels = (
-        functions.set_dataloader(
-            key2token, train_hdf5files, val_hdf5files, test_hdf5files
-        )
-    )
+    test_hdf5files, val_hdf5files, key2token = dataset.read_dataset(mode=mode)
+    test_dataloader, val_dataloader, in_channels = functions.set_dataloader(key2token, test_hdf5files, val_hdf5files, mode)
+    print(f"🔢 テストデータ数: {len(test_dataloader.dataset)} サンプル")
     VOCAB = len(key2token)
     out_channels = VOCAB
     save_path = model_config.model_use_path

@@ -12,23 +12,15 @@ import logging
 
 
 def model_train():
-    logger, log_file = init_log.setup_logging()
+    mode = "train"
+    logger, log_file = init_log.setup_logging(mode=mode)
     logging.info("訓練を開始しました")
-    train_hdf5files, val_hdf5files, test_hdf5files, key2token = dataset.read_dataset()
-    train_dataloader, val_dataloader, test_dataloader, in_channels = (
-        functions.set_dataloader(
-            key2token, train_hdf5files, val_hdf5files, test_hdf5files
-        )
-    )
+
+    train_hdf5files, val_hdf5files, key2token = dataset.read_dataset(mode=mode)
+    train_dataloader, val_dataloader, in_channels = functions.set_dataloader(key2token, train_hdf5files, val_hdf5files, mode)
 
     VOCAB = len(key2token)
     out_channels = VOCAB
-    pad_token = key2token["<pad>"]
-    blank_id = 0
-    print(key2token)
-    print(
-        f"VOCAB サイズ: {VOCAB}, パッディングトークン: {pad_token}, ブランクID: {blank_id}"
-    )
 
     # モデルの初期化
     cnn_transformer = model.CNNBiLSTMModel(
@@ -51,7 +43,7 @@ def model_train():
         tren_norm_first=model_config.tren_norm_first,
         tren_add_bias=model_config.tren_add_bias,
         num_classes=out_channels,
-        blank_idx=blank_id,
+        blank_idx=0, # CTCのblankインデックスを0に設定
         temporal_model_type=model_config.temporal_model_type,  # 追加
     )
 

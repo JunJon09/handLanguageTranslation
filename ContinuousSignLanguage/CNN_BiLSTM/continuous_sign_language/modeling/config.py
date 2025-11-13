@@ -65,4 +65,4 @@ augment_rotation_range = 1.0  # 回転範囲を小さくして精度向上
 augment_translation_range = 0.01  # 平行移動範囲を小さくして安定化
 
 # モデル使用パス
-model_use_path = "CNN_BiLSTM/models/CNN_BiLSTM_model.pth"
+model_use_path = "CNN_BiLSTM/models/CNN_BiLSTM_model_transformer_10_15_20_25_30.pth"
