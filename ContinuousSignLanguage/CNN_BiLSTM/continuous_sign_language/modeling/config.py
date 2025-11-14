@@ -1,20 +1,14 @@
 activation = "relu"
 
 # 時系列モデルの選択
-# "bilstm": 従来のBiLSTMモデル
-# "transformer": 標準Transformerモデル
-# "multiscale_transformer": マルチスケールTransformerモデル
+cnn_model_type="DualCNNWithCTC" # "DualCNNWithCTC" or "DualMultiScaleTemporalConv"
 temporal_model_type = "transformer"  # デフォルトはTransformerに変更
-
 # detail 1DCNN（WER低下のための調整）
 cnn_out_channels = 512  # 256から320に増加してより豊富な特徴抽出
 kernel_size = 25  # 30から25に減らして細かい時間パターンを捉える
-stride = 1
-padding = kernel_size // 2
-dropout_rate = 0.25  # 0.3から0.25に下げて学習を促進
-bias = False
-resNet = 0  # 0: なし, 1: restNet18, 2: restNet34 3: restNet50 restNet101 5: restNet152, 6: restNet152
-
+cnn_dropout_rate = 0.25  # 0.3から0.25に下げて学習を促進
+conv_type = 2
+use_bn = True
 
 # detail transformer encoder（WER改善のための調整）
 tren_num_layers = 4  # 5から4に減らして過学習を防ぐ

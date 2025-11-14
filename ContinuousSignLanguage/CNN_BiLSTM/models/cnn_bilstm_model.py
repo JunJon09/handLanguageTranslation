@@ -42,18 +42,16 @@ class SpatialCorrelationModule(nn.Module):
         return out
 
 
-class CNNBiLSTMModel(nn.Module):
+class Model(nn.Module):
     def __init__(
         self,
         vocabulary,
         in_channels,
-        kernel_size,
+        hand_size,
         cnn_out_channels,
-        stride,
-        padding,
-        dropout_rate,
-        bias,
-        resNet,
+        cnn_dropout_rate,
+        conv_type,
+        use_bn,
         activation="relu",
         tren_num_layers=1,
         tren_num_heads=1,
@@ -64,35 +62,71 @@ class CNNBiLSTMModel(nn.Module):
         tren_norm_first=True,
         tren_add_bias=True,
         num_classes=100,
-        blank_idx=0,
-        temporal_model_type="bilstm",  # "bilstm", "transformer", "multiscale_transformer"
+        blank_id=0,
+        cnn_model_type="DualCNNWithCTC", # "DualCNNWithCTC" or "DualMultiScaleTemporalConv"
+        temporal_model_type="bilstm", # "bilstm" or "transformer"
     ):
         super().__init__()
-
-        # blank_idxをクラス変数として保存
-        self.blank_id = 0
+        self.in_channels = in_channels
+        self.cnn_out_channels = cnn_out_channels
+        self.blank_id = blank_id
+        self.cnn_model_type = cnn_model_type
         self.temporal_model_type = temporal_model_type
+        self.num_classes = num_classes
 
-        # 1DCNNモデル
-        # self.cnn_model = cnn.DualCNNWithCTC(
-        #     skeleton_input_size=in_channels,
-        #     hand_feature_size=24,
-        #     skeleton_hidden_size=cnn_out_channels//2,
-        #     hand_hidden_size=cnn_out_channels//2,
-        #     fusion_hidden_size=cnn_out_channels,
-        #     num_classes=num_classes,
-        #     blank_idx=blank_idx,
-        # ).to("cpu")
 
-        self.cnn_model = cnn.DualMultiScaleTemporalConv(
-            skeleton_input_size=in_channels,
-            spatial_input_size=24,
-            skeleton_hidden_size=cnn_out_channels // 2,
-            spatial_hidden_size=cnn_out_channels // 2,
-            fusion_hidden_size=cnn_out_channels,
-            num_classes=num_classes,
-            blank_idx=blank_idx,
-        )
+        if self.cnn_model_type == "DualCNNWithCTC":
+            self.cnn_model = cnn.DualCNNWithCTC(
+            skeleton_input_size=self.in_channels,
+            hand_feature_size=hand_size,
+            skeleton_hidden_size=self.cnn_out_channels//2,
+            hand_hidden_size=self.cnn_out_channels//2,
+            fusion_hidden_size=self.cnn_out_channels,
+            dropout_rate=cnn_dropout_rate,
+            conv_type=conv_type,
+            use_bn=use_bn,
+            num_classes=self.num_classes,
+            blank_id=self.blank_id,
+            ).to("cpu")
+
+        elif self.cnn_model_type == "DualMultiScaleTemporalConv":
+            self.cnn_model = cnn.DualMultiScaleTemporalConv(
+                skeleton_input_size=self.in_channels,
+                spatial_input_size=hand_size,
+                skeleton_hidden_size=self.cnn_out_channels // 2,
+                spatial_hidden_size=self.cnn_out_channels // 2,
+                fusion_hidden_size=self.cnn_out_channels,
+                num_classes=self.num_classes,
+                blank_id=self.blank_id,
+            ).to("cpu")
+        else:
+            raise ValueError(f"Unknown cnn_model_type: {cnn_model_type}")
+
+
+        # 時系列モデルの選択
+        if temporal_model_type == "bilstm":
+            self.temporal_model = BiLSTM.BiLSTMLayer(
+                rnn_type="LSTM",
+                input_size=self.cnn_out_channels,
+                hidden_size=self.cnn_out_channels * 2,  # 隠れ層のサイズ
+                num_layers=4,
+                dropout=0.5,  # 過学習対策: 0.3 → 0.5に強化
+                bidirectional=True,
+            )
+            temporal_output_size = cnn_out_channels * 2
+
+        elif temporal_model_type == "transformer":
+            self.temporal_model = TransformerLayer.TransformerLayer(
+                input_size=self.cnn_out_channels,
+                hidden_size=self.cnn_out_channels * 2,
+                num_layers=tren_num_layers,
+                num_heads=tren_num_heads,
+                dropout=tren_dropout,
+            )
+            temporal_output_size = cnn_out_channels * 2
+
+        else:
+            raise ValueError(f"Unknown temporal_model_type: {temporal_model_type}")
 
         self.loss = dict()
         self.criterion_init()
@@ -102,41 +136,6 @@ class CNNBiLSTMModel(nn.Module):
             "SeqCTC": 1.2,  # BiLSTMからの予測をより重視
             "Dist": 0.15,  # 蒸留損失を大幅に削減してLoss爆発を防ぐ
         }
-
-        # 時系列モデルの選択
-        if temporal_model_type == "bilstm":
-            self.temporal_model = BiLSTM.BiLSTMLayer(
-                rnn_type="LSTM",
-                input_size=cnn_out_channels,
-                hidden_size=cnn_out_channels * 2,  # 隠れ層のサイズ
-                num_layers=4,
-                dropout=0.5,  # 過学習対策: 0.3 → 0.5に強化
-                bidirectional=True,
-            )
-            temporal_output_size = cnn_out_channels * 2
-
-        elif temporal_model_type == "transformer":
-            self.temporal_model = TransformerLayer.TransformerLayer(
-                input_size=cnn_out_channels,
-                hidden_size=cnn_out_channels * 2,  # BiLSTMと同じ出力サイズ
-                num_layers=tren_num_layers,
-                num_heads=tren_num_heads,
-                dropout=tren_dropout,
-            )
-            temporal_output_size = cnn_out_channels * 2
-
-        elif temporal_model_type == "multiscale_transformer":
-            self.temporal_model = TransformerLayer.MultiScaleTransformerLayer(
-                input_size=cnn_out_channels,
-                hidden_size=cnn_out_channels * 2,
-                num_layers=tren_num_layers,
-                num_heads=tren_num_heads,
-                dropout=tren_dropout,
-            )
-            temporal_output_size = cnn_out_channels * 2
-
-        else:
-            raise ValueError(f"Unknown temporal_model_type: {temporal_model_type}")
 
         # 相関学習モジュールを追加
         self.spatial_correlation = SpatialCorrelationModule(input_dim=cnn_out_channels)
@@ -155,7 +154,7 @@ class CNNBiLSTMModel(nn.Module):
             gloss_dict=gloss_dict,
             num_classes=num_classes,
             search_mode="greedy",  # 言語モデル統合型のグリーディサーチを使用
-            blank_id=0,
+            blank_id=self.blank_id,
         )
 
 
@@ -248,16 +247,18 @@ class CNNBiLSTMModel(nn.Module):
 
         # CNNモデルの実行
         logging.info("=== CNNモデル処理開始 ===")
-        # cnn_out, cnn_logit, updated_lgt = self.cnn_model(
-        #     skeleton_feat=src_feature, hand_feat=spatial_feature, lgt=input_lengths
-        # )
 
-        cnn_out, cnn_logit, updated_lgt = self.cnn_model(
-            skeleton_feat=src_feature,
-            spatial_feature=spatial_feature,
-            lgt=input_lengths,
-        )
-        
+        if self.cnn_model_type == "DualCNNWithCTC":
+            cnn_out, cnn_logit, updated_lgt = self.cnn_model(
+                skeleton_feat=src_feature, hand_feat=spatial_feature, lgt=input_lengths
+            )
+        else:
+            cnn_out, cnn_logit, updated_lgt = self.cnn_model(
+                skeleton_feat=src_feature,
+                spatial_feature=spatial_feature,
+                lgt=input_lengths,
+            )
+
         logging.info(f"CNN出力完了 - logits範囲: {cnn_logit.min():.2f}~{cnn_logit.max():.2f}")
 
         # 実際のCNN出力形状に基づいて長さを計算

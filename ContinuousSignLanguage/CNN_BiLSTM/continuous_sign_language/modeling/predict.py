@@ -28,7 +28,7 @@ if __name__ == "__main__":
     save_path = model_config.model_use_path
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    cnn_transformer = model.CNNBiLSTMModel(
+    cnn_transformer = model.Model(
         vocabulary=key2token,
         in_channels=in_channels,
         kernel_size=model_config.kernel_size,
@@ -37,7 +37,6 @@ if __name__ == "__main__":
         padding=model_config.padding,
         dropout_rate=model_config.dropout_rate,
         bias=model_config.bias,
-        resNet=model_config.resNet,
         activation=model_config.activation,
         tren_num_layers=model_config.tren_num_layers,
         tren_num_heads=model_config.tren_num_heads,

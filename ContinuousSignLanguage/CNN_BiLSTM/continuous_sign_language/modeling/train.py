@@ -2,6 +2,8 @@ import CNN_BiLSTM.continuous_sign_language.dataset as dataset
 import CNN_BiLSTM.continuous_sign_language.modeling.functions as functions
 import CNN_BiLSTM.models.cnn_bilstm_model as model
 import CNN_BiLSTM.continuous_sign_language.modeling.config as model_config
+import CNN_BiLSTM.continuous_sign_language.config as config
+
 import CNN_BiLSTM.continuous_sign_language.plots as plot
 import CNN_BiLSTM.continuous_sign_language.init_log as init_log
 
@@ -23,16 +25,14 @@ def model_train():
     out_channels = VOCAB
 
     # モデルの初期化
-    cnn_transformer = model.CNNBiLSTMModel(
+    cnn_transformer = model.Model(
         vocabulary=key2token,
         in_channels=in_channels,
-        kernel_size=model_config.kernel_size,
+        hand_size=config.spatial_spatial_feature,
         cnn_out_channels=model_config.cnn_out_channels,
-        stride=model_config.stride,
-        padding=model_config.padding,
-        dropout_rate=model_config.dropout_rate,
-        bias=model_config.bias,
-        resNet=model_config.resNet,
+        cnn_dropout_rate=model_config.cnn_dropout_rate,
+        conv_type=model_config.conv_type,
+        use_bn=model_config.use_bn,
         activation=model_config.activation,
         tren_num_layers=model_config.tren_num_layers,
         tren_num_heads=model_config.tren_num_heads,
@@ -43,8 +43,9 @@ def model_train():
         tren_norm_first=model_config.tren_norm_first,
         tren_add_bias=model_config.tren_add_bias,
         num_classes=out_channels,
-        blank_idx=0, # CTCのblankインデックスを0に設定
-        temporal_model_type=model_config.temporal_model_type,  # 追加
+        blank_id=0, # CTCのblankインデックスを0に設定
+        cnn_model_type=model_config.cnn_model_type,
+        temporal_model_type=model_config.temporal_model_type,
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
