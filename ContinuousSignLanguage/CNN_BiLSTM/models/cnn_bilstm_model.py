@@ -52,15 +52,10 @@ class Model(nn.Module):
         cnn_dropout_rate,
         conv_type,
         use_bn,
-        activation="relu",
-        tren_num_layers=1,
-        tren_num_heads=1,
-        tren_dim_ffw=256,
-        tren_dropout=0.1,
-        tren_norm_eps=1e-5,
-        batch_first=True,
-        tren_norm_first=True,
-        tren_add_bias=True,
+        kernel_sizes=[10, 15, 20, 25, 30],
+        num_layers=1,
+        num_heads=1,
+        dropout=0.1,
         num_classes=100,
         blank_id=0,
         cnn_model_type="DualCNNWithCTC", # "DualCNNWithCTC" or "DualMultiScaleTemporalConv"
@@ -96,6 +91,9 @@ class Model(nn.Module):
                 skeleton_hidden_size=self.cnn_out_channels // 2,
                 spatial_hidden_size=self.cnn_out_channels // 2,
                 fusion_hidden_size=self.cnn_out_channels,
+                skeleton_kernel_sizes=kernel_sizes,
+                spatial_kernel_sizes=kernel_sizes,
+                dropout_rate=cnn_dropout_rate,
                 num_classes=self.num_classes,
                 blank_id=self.blank_id,
             ).to("cpu")
@@ -109,8 +107,8 @@ class Model(nn.Module):
                 rnn_type="LSTM",
                 input_size=self.cnn_out_channels,
                 hidden_size=self.cnn_out_channels * 2,  # 隠れ層のサイズ
-                num_layers=4,
-                dropout=0.5,  # 過学習対策: 0.3 → 0.5に強化
+                num_layers=num_layers,
+                dropout=dropout,
                 bidirectional=True,
             )
             temporal_output_size = cnn_out_channels * 2
@@ -119,9 +117,9 @@ class Model(nn.Module):
             self.temporal_model = TransformerLayer.TransformerLayer(
                 input_size=self.cnn_out_channels,
                 hidden_size=self.cnn_out_channels * 2,
-                num_layers=tren_num_layers,
-                num_heads=tren_num_heads,
-                dropout=tren_dropout,
+                num_layers=num_layers,
+                num_heads=num_heads,
+                dropout=dropout,
             )
             temporal_output_size = cnn_out_channels * 2
 
@@ -143,7 +141,6 @@ class Model(nn.Module):
         # クラス分類用の線形層
         self.classifier = nn.Linear(temporal_output_size, num_classes)
 
-        # 重みの初期化を行う - コメントアウトを解除
         self._initialize_weights()
 
         gloss_dict = {word: [i] for i, word in enumerate(vocabulary)}
@@ -167,13 +164,10 @@ class Model(nn.Module):
 
         # バイアスの特別な初期化 - ブランクを大幅に抑制し、他のクラスを強調
         if self.classifier.bias is not None:
-            # ブランクトークン（インデックス0）のバイアスを大幅に下げる
-            nn.init.constant_(self.classifier.bias, 0.1)  # 他のクラスを少し促進
-            self.classifier.bias.data[0] = -2.0  # ブランクを強力に抑制（-1.0 → -2.0）
+            nn.init.constant_(self.classifier.bias, 0.1)
+            with torch.no_grad():
+                self.classifier.bias.data[0] = -2.0 
 
-            logging.info(
-                f"分類器バイアス初期化完了 - ブランク: {self.classifier.bias.data[0]:.3f}, 他: {self.classifier.bias.data[1]:.3f}"
-            )
 
         # BiLSTM層の重み初期化
         if self.temporal_model_type == "bilstm":
@@ -215,13 +209,9 @@ class Model(nn.Module):
         src_feature,
         spatial_feature,
         tgt_feature,
-        src_causal_mask,
-        src_padding_mask,
         input_lengths,
         target_lengths,
         mode,
-        blank_id=None,
-        current_epoch=None,
     ):
         """
         src_feature:[batch, C, T, J]
@@ -230,14 +220,11 @@ class Model(nn.Module):
         target_lengths:[batch]tgt_featureで最大値に伸ばしたので本当の長さ
         current_epoch: 現在のエポック番号（グラフ作成時に使用）
         """
-        # blank_idが指定されていない場合はクラス変数を使用
-        if blank_id is None:
-            blank_id = self.blank_id
-
+        
         N, C, T, J = src_feature.shape
         src_feature = src_feature.permute(0, 3, 1, 2).contiguous().view(N, C * J, T)
         spatial_feature = spatial_feature.permute(0, 2, 1)
-        # 入力データにNaN値があるかチェック
+
         if torch.isnan(src_feature).any():
             print("警告: 入力src_featureにNaN値が検出されました")
             exit(1)
@@ -273,7 +260,7 @@ class Model(nn.Module):
             )
             exit(1)
 
-        # # # 相関学習モジュールの適用
+        # 相関学習モジュールの適用
         if hasattr(self, "_visualize_attention") and self._visualize_attention:
             cnn_out, attention_weights = self.spatial_correlation(
                 cnn_out, return_attention=True
@@ -292,40 +279,7 @@ class Model(nn.Module):
         
         logging.info(f"最終出力形状: {outputs.shape}, 範囲: {outputs.min():.2f}~{outputs.max():.2f}")
 
-        # 予測確率分布の分析
-        with torch.no_grad():
-            # ソフトマックス適用後の確率分布を取得
-            probs = F.softmax(outputs, dim=-1)
-
-            # ブランクトークンの平均確率を計算
-            blank_probs = probs[:, :, self.blank_id].mean().item()
-
-            # nan防止のために丁寧に他のトークンの平均確率を計算
-            other_probs = 0.0
-            count = 0
-
-            # ブランク以前のトークンがあれば計算
-            if self.blank_id > 0:
-                pre_blank_probs = probs[:, :, : self.blank_id].mean().item()
-                other_probs += pre_blank_probs
-                count += 1
-
-            # ブランク以降のトークンがあれば計算
-            if self.blank_id < probs.shape[2] - 1:
-                post_blank_probs = probs[:, :, self.blank_id + 1 :].mean().item()
-                other_probs += post_blank_probs
-                count += 1
-
-            # 平均を計算（0除算防止）
-            if count > 0:
-                other_probs /= count
-
-            # 比率計算（0除算防止）
-            ratio = blank_probs / other_probs if other_probs > 0 else float("inf")
-
-            # トップ5で最も頻繁に出現するトークンを表示
-            topk_values, topk_indices = torch.topk(probs.mean(dim=1), k=5, dim=1)
-
+       
         # デコード実行
         pred = self.decoder.decode(outputs, updated_lgt, batch_first=False, probs=False)
         conv_pred = self.decoder.decode(
@@ -463,8 +417,6 @@ class Model(nn.Module):
         # 入力の最大長
         max_input_len = src_feature_T
 
-        # 純粋に割合ベースで計算
-        scale_ratio = actual_seq_len / max_input_len
 
         # すべてのサンプルに対して割合を適用
         updated_lengths = []

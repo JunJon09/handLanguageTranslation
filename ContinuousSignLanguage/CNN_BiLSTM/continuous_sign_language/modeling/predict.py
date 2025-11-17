@@ -1,6 +1,7 @@
 import CNN_BiLSTM.continuous_sign_language.modeling.functions as functions
 import CNN_BiLSTM.models.cnn_bilstm_model as model
 import CNN_BiLSTM.continuous_sign_language.modeling.config as model_config
+import CNN_BiLSTM.continuous_sign_language.config as config
 import CNN_BiLSTM.continuous_sign_language.dataset as dataset
 import CNN_BiLSTM.continuous_sign_language.init_log as init_log
 import CNN_BiLSTM.continuous_sign_language.modeling.performance_monitor as pm
@@ -31,101 +32,31 @@ if __name__ == "__main__":
     cnn_transformer = model.Model(
         vocabulary=key2token,
         in_channels=in_channels,
-        kernel_size=model_config.kernel_size,
+        hand_size=config.spatial_spatial_feature,
         cnn_out_channels=model_config.cnn_out_channels,
-        stride=model_config.stride,
-        padding=model_config.padding,
-        dropout_rate=model_config.dropout_rate,
-        bias=model_config.bias,
-        activation=model_config.activation,
-        tren_num_layers=model_config.tren_num_layers,
-        tren_num_heads=model_config.tren_num_heads,
-        tren_dim_ffw=model_config.tren_dim_ffw,
-        tren_dropout=model_config.tren_dropout,
-        tren_norm_eps=model_config.tren_norm_eps,
-        batch_first=model_config.batch_first,
-        tren_norm_first=model_config.tren_norm_first,
-        tren_add_bias=model_config.tren_add_bias,
+        cnn_dropout_rate=model_config.cnn_dropout_rate,
+        conv_type=model_config.conv_type,
+        use_bn=model_config.use_bn,
+        kernel_sizes=model_config.kernel_sizes,
+        num_layers=model_config.num_layers,
+        num_heads=model_config.num_heads,
+        dropout=model_config.dropout,
         num_classes=out_channels,
-        blank_idx=VOCAB - 1,
-        temporal_model_type=model_config.temporal_model_type,  # 追加
+        blank_id=0, # CTCのblankインデックスを0に設定
+        cnn_model_type=model_config.cnn_model_type,
+        temporal_model_type=model_config.temporal_model_type,
     )
 
     load_model, optimizer_loaded, epoch_loaded = functions.load_model(
         cnn_transformer, save_path, device
     )
 
-    # Transformerファインチューニングモードの設定確認
-    if (
-        hasattr(model_config, "fine_tune_transformer_only")
-        and model_config.fine_tune_transformer_only
-    ):
-        if model_config.temporal_model_type in [
-            "transformer",
-            "multiscale_transformer",
-        ]:
-            logging.info(
-                "🎯 予測時：Transformerファインチューニングモードで訓練されたモデルを使用"
-            )
-        # 予測時はフリーズ設定は不要（全層を使用して予測）
-
-    # ========================================
-    # 🔍 可視化・分析設定
-    # ========================================
-    VISUALIZE_ATTENTION = True  # True: 可視化する, False: 可視化しない
-    GENERATE_CONFUSION_MATRIX = True  # True: 混同行列を生成, False: 生成しない
-    VISUALIZE_CONFIDENCE = True  # True: 予測信頼度可視化, False: 可視化しない
-    VISUALIZE_MULTILAYER_FEATURES = True  # True: 多層特徴量可視化, False: 可視化しない
-    MULTILAYER_METHOD = "both"  # "tsne", "umap", "both"
-
-    if (
-        VISUALIZE_ATTENTION
-        or GENERATE_CONFUSION_MATRIX
-        or VISUALIZE_CONFIDENCE
-        or VISUALIZE_MULTILAYER_FEATURES
-    ):
-        analysis_options = []
-        if VISUALIZE_ATTENTION:
-            analysis_options.append("Attention & CTC可視化")
-        if GENERATE_CONFUSION_MATRIX:
-            analysis_options.append("混同行列分析")
-        if VISUALIZE_CONFIDENCE:
-            analysis_options.append("予測信頼度可視化")
-        if VISUALIZE_MULTILAYER_FEATURES:
-            analysis_options.append(f"多層特徴量可視化({MULTILAYER_METHOD})")
-
-        print(f"🔍 拡張分析モードでテストを実行します")
-        print(f"  有効な分析: {', '.join(analysis_options)}")
-        print(
-            f"  多層特徴量分析: CNN空間パターン、BiLSTM時系列、Attention重要度、最終統合特徴量"
-        )
-
-        wer, test_times = functions.test_loop(
-            dataloader=test_dataloader,
-            model=load_model,
-            device=device,
-            return_pred_times=True,
-            blank_id=VOCAB - 1,
-            visualize_attention=VISUALIZE_ATTENTION,
-            generate_confusion_matrix=GENERATE_CONFUSION_MATRIX,
-            visualize_confidence=VISUALIZE_CONFIDENCE,
-            visualize_multilayer_features=VISUALIZE_MULTILAYER_FEATURES,
-            multilayer_method=MULTILAYER_METHOD,
-        )
-    else:
-        print("📊 通常モードでテストを実行します")
-        wer, test_times = functions.test_loop(
-            dataloader=test_dataloader,
-            model=load_model,
-            device=device,
-            return_pred_times=True,
-            blank_id=VOCAB - 1,
-            visualize_attention=False,
-            generate_confusion_matrix=False,
-            visualize_confidence=False,
-            visualize_multilayer_features=False,
-            multilayer_method="both",
-        )
+    wer, test_times = functions.test_loop(
+        dataloader=test_dataloader,
+        model=load_model,
+        device=device,
+        return_pred_times=True
+    )
 
     print(f"ロードしたモデルのテスト精度: {wer}")
     

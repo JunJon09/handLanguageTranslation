@@ -17,6 +17,7 @@ def model_train():
     mode = "train"
     init_log.setup_logging(mode=mode)
     logging.info("訓練を開始しました")
+    print(f"CNN: {model_config.cnn_model_type}, Encoder: {model_config.temporal_model_type}")
 
     train_hdf5files, val_hdf5files, key2token = dataset.read_dataset(mode=mode)
     train_dataloader, val_dataloader, in_channels = functions.set_dataloader(key2token, train_hdf5files, val_hdf5files, mode)
@@ -33,15 +34,10 @@ def model_train():
         cnn_dropout_rate=model_config.cnn_dropout_rate,
         conv_type=model_config.conv_type,
         use_bn=model_config.use_bn,
-        activation=model_config.activation,
-        tren_num_layers=model_config.tren_num_layers,
-        tren_num_heads=model_config.tren_num_heads,
-        tren_dim_ffw=model_config.tren_dim_ffw,
-        tren_dropout=model_config.tren_dropout,
-        tren_norm_eps=model_config.tren_norm_eps,
-        batch_first=model_config.batch_first,
-        tren_norm_first=model_config.tren_norm_first,
-        tren_add_bias=model_config.tren_add_bias,
+        kernel_sizes=model_config.kernel_sizes,
+        num_layers=model_config.num_layers,
+        num_heads=model_config.num_heads,
+        dropout=model_config.dropout,
         num_classes=out_channels,
         blank_id=0, # CTCのblankインデックスを0に設定
         cnn_model_type=model_config.cnn_model_type,

@@ -490,244 +490,6 @@ class DualMultiScaleTemporalConv(nn.Module):
         return torch.tensor(updated_lengths, dtype=torch.long, device=device)
 
 
-class AdaptiveTemporalConv(nn.Module):
-    """
-    フレーム数に応じて動的にカーネルサイズを調整するTemporal Convolution
-    15, 25, 35フレームなど異なる受容野を持つ
-    """
-
-    def __init__(
-        self, input_size, hidden_size, target_frames=[15, 25, 35], dropout_rate=0.2
-    ):
-        super(AdaptiveTemporalConv, self).__init__()
-
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.target_frames = target_frames
-        self.num_branches = len(target_frames)
-
-        # 各目標フレーム数に対応するブランチを作成
-        self.branches = nn.ModuleList()
-
-        for target_frame in target_frames:
-            # 目標フレーム数に達するためのカーネル設計
-            branch_layers = self._design_branch(target_frame)
-            self.branches.append(branch_layers)
-
-        # 特徴融合
-        branch_output_size = hidden_size // self.num_branches
-        self.fusion_conv = nn.Conv1d(
-            hidden_size, hidden_size, kernel_size=1, bias=False
-        )
-        self.fusion_bn = nn.BatchNorm1d(hidden_size)
-        self.fusion_relu = nn.ReLU(inplace=True)
-
-    def _design_branch(self, target_frame):
-        """目標フレーム数に達するブランチを設計"""
-        branch_hidden = self.hidden_size // self.num_branches
-
-        if target_frame <= 15:
-            # 15フレーム: K5 -> K3 -> K3
-            layers = nn.Sequential(
-                nn.Conv1d(
-                    self.input_size, branch_hidden, kernel_size=5, padding=2, bias=False
-                ),
-                nn.BatchNorm1d(branch_hidden),
-                nn.ReLU(inplace=True),
-                nn.Conv1d(
-                    branch_hidden, branch_hidden, kernel_size=3, padding=1, bias=False
-                ),
-                nn.BatchNorm1d(branch_hidden),
-                nn.ReLU(inplace=True),
-                nn.Conv1d(
-                    branch_hidden, branch_hidden, kernel_size=3, padding=1, bias=False
-                ),
-                nn.BatchNorm1d(branch_hidden),
-                nn.ReLU(inplace=True),
-            )
-        elif target_frame <= 25:
-            # 25フレーム: K5 -> P2 -> K5 -> P2 (現在の設定)
-            layers = nn.Sequential(
-                nn.Conv1d(
-                    self.input_size, branch_hidden, kernel_size=5, padding=2, bias=False
-                ),
-                nn.BatchNorm1d(branch_hidden),
-                nn.ReLU(inplace=True),
-                nn.MaxPool1d(kernel_size=2),
-                nn.Conv1d(
-                    branch_hidden, branch_hidden, kernel_size=5, padding=2, bias=False
-                ),
-                nn.BatchNorm1d(branch_hidden),
-                nn.ReLU(inplace=True),
-                nn.MaxPool1d(kernel_size=2),
-            )
-        else:  # target_frame > 25
-            # 35フレーム: K7 -> K5 -> K3 (より大きな受容野)
-            layers = nn.Sequential(
-                nn.Conv1d(
-                    self.input_size, branch_hidden, kernel_size=7, padding=3, bias=False
-                ),
-                nn.BatchNorm1d(branch_hidden),
-                nn.ReLU(inplace=True),
-                nn.Conv1d(
-                    branch_hidden, branch_hidden, kernel_size=5, padding=2, bias=False
-                ),
-                nn.BatchNorm1d(branch_hidden),
-                nn.ReLU(inplace=True),
-                nn.Conv1d(
-                    branch_hidden, branch_hidden, kernel_size=3, padding=1, bias=False
-                ),
-                nn.BatchNorm1d(branch_hidden),
-                nn.ReLU(inplace=True),
-            )
-
-        return layers
-
-    def forward(self, x):
-        # x: [B, C, T]
-        branch_outputs = []
-
-        # 各ブランチで並列処理
-        for branch in self.branches:
-            branch_out = branch(x)
-            branch_outputs.append(branch_out)
-
-        # チャンネル次元で結合
-        fused = torch.cat(branch_outputs, dim=1)  # [B, hidden_size, T]
-
-        # 融合処理
-        output = self.fusion_conv(fused)
-        output = self.fusion_bn(output)
-        output = self.fusion_relu(output)
-
-        return output
-
-
-class TemporalConv(nn.Module):
-    def __init__(
-        self,
-        input_size,
-        hidden_size,
-        conv_type=2,
-        use_bn=False,
-        num_classes=-1,
-        use_multiscale=True,
-        multiscale_kernels=[3, 5, 7, 9],
-        target_frames=[15, 25, 35],
-        use_parallel_processing=False,
-    ):
-        super(TemporalConv, self).__init__()
-        self.use_bn = use_bn
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.num_classes = num_classes
-        self.conv_type = conv_type
-        self.use_multiscale = use_multiscale
-
-        if self.use_multiscale:
-            # Multi-Scale Temporal Convolutionを使用
-            self.temporal_conv = MultiScaleTemporalConv(
-                input_size=input_size,
-                hidden_size=hidden_size,
-                target_frames=target_frames,
-                use_parallel_processing=use_parallel_processing,
-            )
-            # または Adaptive Temporal Convolutionを使用
-            # self.temporal_conv = AdaptiveTemporalConv(
-            #     input_size=input_size,
-            #     hidden_size=hidden_size,
-            #     target_frames=target_frames
-            # )
-        else:
-            # 従来の固定カーネル方式
-            if self.conv_type == 0:
-                self.kernel_size = ["K3"]
-            elif self.conv_type == 1:
-                self.kernel_size = ["K5", "P2"]
-            elif self.conv_type == 2:
-                self.kernel_size = ["K5", "P2", "K5", "P2"]
-            elif self.conv_type == 3:
-                self.kernel_size = ["K5", "K5", "P2"]
-            elif self.conv_type == 4:
-                self.kernel_size = ["K5", "K5"]
-            elif self.conv_type == 5:
-                self.kernel_size = ["K5", "P2", "K5"]
-            elif self.conv_type == 6:
-                self.kernel_size = ["P2", "K5", "K5"]
-            elif self.conv_type == 7:
-                self.kernel_size = ["P2", "K7", "P2", "K7"]
-            elif self.conv_type == 8:
-                self.kernel_size = ["P2", "P2", "K5", "K5"]
-
-            modules = []
-            for layer_idx, ks in enumerate(self.kernel_size):
-                input_sz = (
-                    self.input_size
-                    if layer_idx == 0
-                    or self.conv_type == 6
-                    and layer_idx == 1
-                    or self.conv_type == 7
-                    and layer_idx == 1
-                    or self.conv_type == 8
-                    and layer_idx == 2
-                    else self.hidden_size
-                )
-                if ks[0] == "P":
-                    modules.append(
-                        nn.MaxPool1d(kernel_size=int(ks[1]), ceil_mode=False)
-                    )
-                elif ks[0] == "K":
-                    modules.append(
-                        nn.Conv1d(
-                            input_sz,
-                            self.hidden_size,
-                            kernel_size=int(ks[1]),
-                            stride=1,
-                            padding=0,
-                        )
-                    )
-                    modules.append(nn.BatchNorm1d(self.hidden_size))
-                    modules.append(nn.ReLU(inplace=True))
-            self.temporal_conv = nn.Sequential(*modules)
-
-        if self.num_classes != -1:
-            self.fc = nn.Linear(self.hidden_size, self.num_classes)
-
-    def update_lgt(self, lgt):
-        if self.use_multiscale:
-            # Multi-scaleの場合、paddingを使用しているので長さは変わらない
-            return lgt
-        else:
-            # 従来の方法での長さ更新
-            feat_len = copy.deepcopy(lgt)
-            for ks in self.kernel_size:
-                if ks[0] == "P":
-                    feat_len = torch.div(feat_len, 2)
-                else:
-                    feat_len -= int(ks[1]) - 1
-            return feat_len
-
-    def forward(self, frame_feat, lgt):
-        visual_feat = self.temporal_conv(frame_feat)
-        lgt = self.update_lgt(lgt)
-
-        if self.num_classes != -1:
-            if self.use_multiscale:
-                # Multi-scaleの場合、visual_featは既に[B, C, T]形式
-                logits = self.fc(visual_feat.transpose(1, 2)).transpose(1, 2)
-            else:
-                # 従来の方法
-                logits = self.fc(visual_feat.transpose(1, 2)).transpose(1, 2)
-        else:
-            logits = None
-
-        return {
-            "visual_feat": visual_feat.permute(2, 0, 1),
-            "conv_logits": logits.permute(2, 0, 1) if logits is not None else None,
-            "feat_len": lgt.cpu(),
-        }
-
-
 class DualFeatureTemporalConv(nn.Module):
     """
     骨格座標と手の空間的特徴を別々の畳み込み層で処理するモデル
@@ -753,7 +515,7 @@ class DualFeatureTemporalConv(nn.Module):
         conv_type=2,
         use_bn=True,
         num_classes=-1,
-        dropout_rate=0.2,  # Dropoutレートを追加
+        dropout_rate=0.2,
     ):
         super(DualFeatureTemporalConv, self).__init__()
         self.use_bn = use_bn
@@ -994,22 +756,16 @@ class DualCNNWithCTC(nn.Module):
         """
         重みの初期化を改良した関数 - logits値の安定化
         """
-        # Classifier層の初期化 - logits値を小さく保つ
-        nn.init.xavier_uniform_(
-            self.classifier.weight, gain=0.001  # さらに小さくしてlogits値を抑制
-        )
 
+        nn.init.xavier_uniform_(self.classifier.weight)
         if self.classifier.bias is not None:
             # バイアスは最初は小さな負の値に設定
-            nn.init.constant_(self.classifier.bias, -0.5)
+            nn.init.constant_(self.classifier.bias, 0.1)
 
             # ブランクトークンのバイアスを他より少し低くする
             with torch.no_grad():
-                self.classifier.bias[self.blank_id] = -1.0  # ブランクを抑制
+                self.classifier.bias[self.blank_id] = -2.0  # ブランクを抑制
                 
-        print(f"DualCNNWithCTC: 分類器重み初期化完了")
-        print(f"  重み範囲: {self.classifier.weight.min().item():.4f} ~ {self.classifier.weight.max().item():.4f}")
-        print(f"  バイアス範囲: {self.classifier.bias.min().item():.4f} ~ {self.classifier.bias.max().item():.4f}")
 
     def forward(
         self,
