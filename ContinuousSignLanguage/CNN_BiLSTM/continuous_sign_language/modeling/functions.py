@@ -2,6 +2,7 @@ import CNN_BiLSTM.continuous_sign_language.features as features
 import CNN_BiLSTM.continuous_sign_language.config as config
 import CNN_BiLSTM.continuous_sign_language.dataset as dataset
 import CNN_BiLSTM.continuous_sign_language.modeling.config as model_config
+import CNN_BiLSTM.continuous_sign_language.plots as plots
 from torchvision.transforms import Compose
 import os
 from functools import partial
@@ -394,6 +395,10 @@ def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
     try:
         # ラベル別WERの計算
         label_wer = {}
+        # 単語ごとの誤り回数を集計
+        word_error_counts = {}
+        print(reference_text_list)
+
         for ref, hyp in zip(reference_text_list, hypothesis_text_list):
             ref_label = ref  # Get the first token as label
 
@@ -401,6 +406,27 @@ def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
                 label_wer[ref_label] = {"refs": [], "hyps": []}
             label_wer[ref_label]["refs"].append(ref)
             label_wer[ref_label]["hyps"].append(hyp)
+
+            # 単語ごとに誤りをカウント
+            ref_words = ref.split()
+            hyp_words = hyp.split()
+
+            # 各単語について正誤を判定
+            for ref_word in ref_words:
+                if ref_word not in word_error_counts:
+                    word_error_counts[ref_word] = {
+                        "correct": 0,
+                        "incorrect": 0,
+                        "total": 0,
+                    }
+
+                word_error_counts[ref_word]["total"] += 1
+
+                # 単語が予測に含まれているかチェック
+                if ref_word in hyp_words:
+                    word_error_counts[ref_word]["correct"] += 1
+                else:
+                    word_error_counts[ref_word]["incorrect"] += 1
 
         # Calculate and log WER for each label
         logging.info("WER per label:")
@@ -410,6 +436,21 @@ def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
             label_wer_score = wer(label_refs, label_hyps)
             logging.info(
                 f"Label {label}: {label_wer_score:.10f} ({len(label_refs)} samples)"
+            )
+
+        # 単語ごとの誤り回数をログ出力
+        logging.info("\n=== 単語ごとの誤り回数 ===")
+        for word in sorted(
+            word_error_counts.keys(),
+            key=lambda x: word_error_counts[x]["incorrect"],
+            reverse=True,
+        ):
+            stats = word_error_counts[word]
+            error_rate = (
+                stats["incorrect"] / stats["total"] if stats["total"] > 0 else 0
+            )
+            logging.info(
+                f"単語 '{word}': 誤り {stats['incorrect']}回 / 合計 {stats['total']}回 (誤り率: {error_rate:.2%})"
             )
 
         # 全体的な評価指標を計算
@@ -423,6 +464,8 @@ def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
         logging.info(f"Overall CER: {error_rate_cer}")
         logging.info(f"Overall MER: {error_rate_mer}")
 
+        plots.plot_word_error_distribution(word_error_counts=word_error_counts)
+
         return {
             "awer": awer,
             "cer": error_rate_cer,
@@ -433,5 +476,3 @@ def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
     except Exception as e:
         logging.error(f"WER計算でエラー: {e}")
         return None
-
-

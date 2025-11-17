@@ -45,3 +45,5 @@ plot_wer_save_path = "cnn_transformer_wer.png"
 evaluation_base_dir = "CNN_BiLSTM/reports/figures"
 evaluation_results_dir = "CNN_BiLSTM/reports/results"
 
+top_n = 50
+word_error_distribution_save_path = "word_error_distribution.png"

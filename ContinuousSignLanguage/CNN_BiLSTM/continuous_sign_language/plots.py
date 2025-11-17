@@ -4,13 +4,6 @@ import os
 import CNN_BiLSTM.continuous_sign_language.config as config
 from collections import Counter
 import logging
-import torch
-import seaborn as sns
-from sklearn.metrics import confusion_matrix
-from sklearn.manifold import TSNE
-import umap
-import pandas as pd
-from matplotlib.colors import ListedColormap
 
 
 def train_loss_plot(losses_default):
@@ -105,95 +98,173 @@ def wer_plot(wer_scores_default, eval_every_n_epochs):
     plt.close()
 
 
-def plot_top5_trends(self, save_plot=True, plot_dir=None):
+def plot_word_error_distribution(word_error_counts):
     """
-    Top5トークンの頻度推移を折線グラフで表示して保存
+    Visualize word-level error counts with bar charts
+
+    Args:
+        word_error_counts: Dictionary of word-level error statistics
+            Example: {'word1': {'correct': 10, 'incorrect': 5, 'total': 15}, ...}
+        save_path: Save path (uses config.plot_save_dir if None)
+        top_n: Number of top words to display (default: 30)
+
+    Returns:
+        bool: Whether visualization succeeded
     """
-    if len(self.token_frequencies) == 0:
-        print("分析データがありません")
-        return
+    try:
+        if not word_error_counts:
+            logging.warning("Word error statistics data is empty")
+            return False
 
-    # 全バッチの全トークンの累積頻度を計算
-    all_tokens = Counter()
-    for batch_list in self.token_frequencies:
-        for batch_tokens in batch_list:
-            for token, prob in batch_tokens.items():
-                all_tokens[token] += prob
+        logging.info(
+            f"Starting word error distribution visualization ({len(word_error_counts)} words total)"
+        )
 
-    # Top5トークンを特定
-    top5_tokens = [token for token, _ in all_tokens.most_common(5)]
+        # Sort by error count
+        sorted_words = sorted(
+            word_error_counts.items(), key=lambda x: x[1]["incorrect"], reverse=True
+        )
 
-    # 各バッチでのTop5トークンの頻度推移を計算
-    batch_numbers = list(range(len(self.token_frequencies)))
-    token_trends = {token: [] for token in top5_tokens}
+        # Get top N words
+        top_words = sorted_words[:config.top_n]
 
-    for batch_list in self.token_frequencies:
-        # 各バッチ内での平均頻度を計算
-        batch_averages = {token: 0.0 for token in top5_tokens}
+        # Extract data
+        words = [word for word, _ in top_words]
+        incorrect_counts = [stats["incorrect"] for _, stats in top_words]
+        correct_counts = [stats["correct"] for _, stats in top_words]
+        error_rates = [
+            stats["incorrect"] / stats["total"] if stats["total"] > 0 else 0
+            for _, stats in top_words
+        ]
 
-        for batch_tokens in batch_list:
-            for token in top5_tokens:
-                batch_averages[token] += batch_tokens.get(token, 0.0)
+        # Set figure size
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 12))
 
-        # バッチサイズで平均化
-        batch_size = len(batch_list) if batch_list else 1
-        for token in top5_tokens:
-            token_trends[token].append(batch_averages[token] / batch_size)
+        # === Top panel: Stacked bar chart (correct/incorrect breakdown) ===
+        x_pos = np.arange(len(words))
+        width = 0.8
 
-    # グラフの作成
-    plt.figure(figsize=(12, 8))
-
-    colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
-    markers = ["o", "s", "^", "D", "v"]
-
-    for i, token in enumerate(top5_tokens):
-        plt.plot(
-            batch_numbers,
-            token_trends[token],
-            label=f"{token}",
-            color=colors[i],
-            marker=markers[i],
-            markersize=6,
-            linewidth=2,
+        # Stack correct and incorrect
+        bars1 = ax1.bar(
+            x_pos,
+            incorrect_counts,
+            width,
+            label="Incorrect",
+            color="#e74c3c",
+            alpha=0.8,
+        )
+        bars2 = ax1.bar(
+            x_pos,
+            correct_counts,
+            width,
+            bottom=incorrect_counts,
+            label="Correct",
+            color="#2ecc71",
             alpha=0.8,
         )
 
-    plt.xlabel("Batch Number", fontsize=12)
-    plt.ylabel("Average Probability (Non-blank)", fontsize=12)
-    plt.title("Top 5 Non-blank Token Trends", fontsize=14, fontweight="bold")
-    plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
+      
+        ax1.set_ylabel("Occurrence Count", fontsize=12, fontweight="bold")
+        ax1.set_title(
+            f"Word Recognition Accuracy (Top {config.top_n} Words by Error Count)",
+            fontsize=14,
+            fontweight="bold",
+            pad=20,
+        )
+        ax1.set_xticks(x_pos)
+        ax1.set_xticklabels(words, rotation=45, ha="right", fontsize=10)
+        ax1.legend(loc="upper right", fontsize=11)
+        ax1.grid(axis="y", alpha=0.3, linestyle="--")
 
-    # 統計情報を表示
-    print(
-        f"\n=== Top 5 非ブランクトークン分析 (バッチ数: {len(self.token_frequencies)}) ==="
-    )
-    for i, token in enumerate(top5_tokens):
-        final_prob = token_trends[token][-1] if token_trends[token] else 0
-        max_prob = max(token_trends[token]) if token_trends[token] else 0
-        avg_prob = np.mean(token_trends[token]) if token_trends[token] else 0
-        print(f"{i+1}. {token}:")
-        print(f"   最新: {final_prob:.4f}, 最大: {max_prob:.4f}, 平均: {avg_prob:.4f}")
+        # Display total count above each bar
+        for i, (incorrect, correct) in enumerate(zip(incorrect_counts, correct_counts)):
+            total = incorrect + correct
+            ax1.text(i, total + 0.5, str(total), ha="center", va="bottom", fontsize=9)
 
-    if save_plot:
-        # 保存先ディレクトリの設定
-        if plot_dir is None:
-            plot_dir = config.plot_save_dir if hasattr(config, "plot_save_dir") else "."
+        colors = [
+            "#e74c3c" if rate > 0.5 else "#f39c12" if rate > 0.3 else "#3498db"
+            for rate in error_rates
+        ]
+        bars3 = ax2.bar(
+            x_pos, error_rates, width, color=colors, alpha=0.8, edgecolor="black"
+        )
+     
+        ax2.set_xlabel("Word", fontsize=12, fontweight="bold")
+        ax2.set_ylabel("Error Rate", fontsize=12, fontweight="bold")
+        ax2.set_title("Error Rate by Word", fontsize=14, fontweight="bold", pad=20)
+        ax2.set_xticks(x_pos)
+        ax2.set_xticklabels(words, rotation=45, ha="right", fontsize=10)
+        ax2.set_ylim([0, 1.0])
+        ax2.axhline(
+            y=0.5,
+            color="red",
+            linestyle="--",
+            alpha=0.5,
+            linewidth=1,
+            label="50% Line",
+        )
+        ax2.axhline(
+            y=0.3,
+            color="orange",
+            linestyle="--",
+            alpha=0.5,
+            linewidth=1,
+            label="30% Line",
+        )
+        ax2.legend(loc="upper right", fontsize=10)
+        ax2.grid(axis="y", alpha=0.3, linestyle="--")
 
-        # ディレクトリが存在しない場合は作成
-        os.makedirs(plot_dir, exist_ok=True)
+        # Display error rate above each bar
+        for i, rate in enumerate(error_rates):
+            ax2.text(
+                i, rate + 0.02, f"{rate:.1%}", ha="center", va="bottom", fontsize=9
+            )
 
-        # ファイル名に日時を追加してユニークにする
-        from datetime import datetime
+        # Add statistics
+        total_words = len(word_error_counts)
+        total_incorrect = sum(
+            stats["incorrect"] for stats in word_error_counts.values()
+        )
+        total_correct = sum(stats["correct"] for stats in word_error_counts.values())
+        total_occurrences = total_incorrect + total_correct
+        overall_error_rate = (
+            total_incorrect / total_occurrences if total_occurrences > 0 else 0
+        )
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_path = os.path.join(plot_dir, f"non_blank_token_trends_{timestamp}.png")
+        stats_text = f"Statistics:\n"
+        stats_text += f"• Total words: {total_words}\n"
+        stats_text += f"• Total occurrences: {total_occurrences}\n"
+        stats_text += f"• Total errors: {total_incorrect}\n"
+        stats_text += f"• Total correct: {total_correct}\n"
+        stats_text += f"• Overall error rate: {overall_error_rate:.2%}\n"
+        stats_text += f"• Most error word: '{words[0]}' ({incorrect_counts[0]} errors)"
+
+        fig.text(
+            0.02,
+            0.48,
+            stats_text,
+            fontsize=10,
+            fontfamily="monospace",
+            bbox=dict(boxstyle="round,pad=0.8", facecolor="lightyellow", alpha=0.8),
+            verticalalignment="center",
+        )
+
+        plt.tight_layout(rect=[0, 0, 1, 0.97])
+        save_path = os.path.join(config.plot_save_dir, config.word_error_distribution_save_path)
 
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
-        print(f"\nグラフを保存しました: {save_path}")
+        plt.close()
 
-    # plt.show() は削除
-    plt.close()  # メモリリークを防ぐために明示的に閉じる
+        logging.info(f"Saved word error distribution chart: {save_path}")
+        logging.info(
+            f"Overall error rate: {overall_error_rate:.2%} ({total_incorrect}/{total_occurrences})"
+        )
 
+        return True
 
+    except Exception as e:
+        logging.error(f"Error in word error distribution visualization: {e}")
+        import traceback
+
+        logging.error(f"Detailed error info: {traceback.format_exc()}")
+        return False

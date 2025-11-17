@@ -33,4 +33,4 @@ model_seed_base = 42
 model_save_path = "CNN_BiLSTM/models/CNN_BiLSTM_model.pth"
 
 # モデル使用パス
-model_use_path = "CNN_BiLSTM/models/CNN_BiLSTM_model.pth"
+model_use_path = "CNN_BiLSTM/models/CNN_BiLSTM_model_lstm_20.pth"
