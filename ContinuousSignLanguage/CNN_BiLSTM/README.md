@@ -7,13 +7,22 @@
 A short description of the project.
 
 ## 実行コマンド
-train.pyの場合
+学習の場合
 以下のディレクトリで実行してください
 ```bash
 /src/ContinuousSignLanguage
 ```
 ```bash
 python -m CNN_BiLSTM.continuous_sign_language.modeling.train
+```
+
+testの場合
+以下のディレクトリで実行してください
+```bash
+/src/ContinuousSignLanguage
+```
+```bash
+python -m CNN_BiLSTM.continuous_sign_language.modeling.predict
 ```
 
 

@@ -36,6 +36,7 @@
         "gislr",
         "kalman",
         "OneD",
-        "LSTM"
+        "LSTM",
+        "bilstm",
     ]
 }

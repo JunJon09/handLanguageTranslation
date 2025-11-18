@@ -397,7 +397,6 @@ def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
         label_wer = {}
         # 単語ごとの誤り回数を集計
         word_error_counts = {}
-        print(reference_text_list)
 
         for ref, hyp in zip(reference_text_list, hypothesis_text_list):
             ref_label = ref  # Get the first token as label
@@ -464,7 +463,38 @@ def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
         logging.info(f"Overall CER: {error_rate_cer}")
         logging.info(f"Overall MER: {error_rate_mer}")
 
-        plots.plot_word_error_distribution(word_error_counts=word_error_counts)
+        # エラー数が多い順
+        sorted_words_count_desc = sorted(
+            word_error_counts.items(), 
+            key=lambda x: x[1]["incorrect"], 
+            reverse=True
+        )
+
+        # エラー数が少ない順
+        sorted_words_count_asc = sorted(
+            word_error_counts.items(), 
+            key=lambda x: x[1]["incorrect"], 
+            reverse=False
+        )
+
+        # エラー率が高い順
+        sorted_words_rate_desc = sorted(
+            word_error_counts.items(), 
+            key=lambda x: x[1]["incorrect"] / x[1]["total"] if x[1]["total"] > 0 else 0, 
+            reverse=True
+        )
+
+        # エラー率が低い順
+        sorted_words_rate_asc = sorted(
+            word_error_counts.items(), 
+            key=lambda x: x[1]["incorrect"] / x[1]["total"] if x[1]["total"] > 0 else 0, 
+            reverse=False
+)
+        # 4つのグラフを生成
+        plots.plot_word_error_distribution(word_error_counts, sorted_words_count_desc, "count_desc.png")
+        plots.plot_word_error_distribution(word_error_counts, sorted_words_count_asc, "count_asc.png")
+        plots.plot_word_error_distribution(word_error_counts, sorted_words_rate_desc, "rate_desc.png")
+        plots.plot_word_error_distribution(word_error_counts, sorted_words_rate_asc, "rate_asc.png")
 
         return {
             "awer": awer,

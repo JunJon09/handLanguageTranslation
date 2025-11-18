@@ -98,7 +98,7 @@ def wer_plot(wer_scores_default, eval_every_n_epochs):
     plt.close()
 
 
-def plot_word_error_distribution(word_error_counts):
+def plot_word_error_distribution(word_error_counts, sorted_words, file_name):
     """
     Visualize word-level error counts with bar charts
 
@@ -112,18 +112,6 @@ def plot_word_error_distribution(word_error_counts):
         bool: Whether visualization succeeded
     """
     try:
-        if not word_error_counts:
-            logging.warning("Word error statistics data is empty")
-            return False
-
-        logging.info(
-            f"Starting word error distribution visualization ({len(word_error_counts)} words total)"
-        )
-
-        # Sort by error count
-        sorted_words = sorted(
-            word_error_counts.items(), key=lambda x: x[1]["incorrect"], reverse=True
-        )
 
         # Get top N words
         top_words = sorted_words[:config.top_n]
@@ -250,7 +238,7 @@ def plot_word_error_distribution(word_error_counts):
         )
 
         plt.tight_layout(rect=[0, 0, 1, 0.97])
-        save_path = os.path.join(config.plot_save_dir, config.word_error_distribution_save_path)
+        save_path = os.path.join(config.plot_save_dir, file_name)
 
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
         plt.close()

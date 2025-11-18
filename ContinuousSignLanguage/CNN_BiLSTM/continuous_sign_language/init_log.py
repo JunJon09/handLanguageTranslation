@@ -19,7 +19,7 @@ def setup_logging(log_dir="./CNN_BiLSTM/logs", log_level=logging.INFO, console_o
     
     # 日本時間でのタイムスタンプ付きログファイル名
     timestamp = datetime.now(jst).strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join(log_dir, f"{mode}_{timestamp}.log")
+    log_file = os.path.join(log_dir, f"{mode}/{timestamp}.log")
     
     # 日本時間用のカスタムフォーマッター
     class JSTFormatter(logging.Formatter):

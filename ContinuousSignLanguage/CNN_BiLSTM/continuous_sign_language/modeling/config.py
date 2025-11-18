@@ -17,7 +17,7 @@ dropout = 0.15
 # 学習パラメータ（Loss改善とWER低下のための調整）
 label_smoothing = 0.15  
 lr = 1e-4 
-epochs = 1  
+epochs = 70
 eval_every_n_epochs = 1
 
 # 過学習対策の追加パラメータ（Loss安定化）
