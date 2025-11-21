@@ -251,6 +251,12 @@ def test_loop(
     hypothesis_text_list = []
     hypothesis_text_conv_list = []
     reference_text_list = []
+    topk_stats = {
+        'total_segments': 0,
+        'rank_distribution': {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 'out_of_topk': 0},
+        'correct_in_topk': 0,
+        'details': []  # 詳細なログ用
+    }
 
     # Collect prediction time.
     pred_times = []
@@ -299,9 +305,13 @@ def test_loop(
             # 戻り値の数に応じて処理を分岐
             if len(forward_result) == 3:
                 pred, conv_pred, sequence_logits = forward_result
+                topk_result = None
+            if len(forward_result) == 4:
+                pred, conv_pred, sequence_logits, topk_result = forward_result
             else:
                 pred, conv_pred = forward_result
                 sequence_logits = None
+                topk_result = None
 
             pred_end = time.perf_counter()
             pred_times.append([frames, pred_end - pred_start])
@@ -327,7 +337,8 @@ def test_loop(
             ]
             hypothesis_text_conv = [" ".join(map(str, seq)) for seq in conv_pred_words]
 
-           
+            if topk_result is not None:
+                analyze_topk_predictions(topk_result, tokens[0], batch_idx, topk_stats)
 
             reference_text_list.append(reference_text[0])
             hypothesis_text_list.append(hypothesis_text[0])
@@ -506,3 +517,70 @@ def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
     except Exception as e:
         logging.error(f"WER計算でエラー: {e}")
         return None
+
+def analyze_topk_predictions(topk_result, reference_tokens, batch_idx, topk_stats):
+    """
+    TOP-K予測結果を分析し、統計情報を更新する
+    
+    Args:
+        topk_result: AnalysisDecodeWithTopKの戻り値
+        reference_tokens: 正解トークン列（リスト）
+        batch_idx: バッチインデックス
+        topk_stats: 統計情報を格納する辞書（更新される）
+        model_decoder: デコーダオブジェクト（blank_id取得用）
+    """
+    decoded_words = topk_result['decoded']
+    segment_analysis = topk_result['segment_analysis']
+    
+    logging.info(f"\n=== サンプル {batch_idx + 1} の TOP-K 分析 ===")
+    logging.info(f"正解トークン列: {reference_tokens}")
+    logging.info(f"デコード結果: {[w for w, _ in decoded_words]}")
+    # 各セグメントの分析
+    for seg_idx, seg in enumerate(segment_analysis):
+        print(seg)
+        # topk_stats['total_segments'] += 1
+        
+        # selected_token = seg['token']
+        # selected_word = seg['word']
+        # rank = seg['rank']
+        # confidence = seg['confidence']
+        # top_candidates = seg['top_k_candidates']
+        
+        # # 順位分布を更新
+        # if rank == -1:
+        #     topk_stats['rank_distribution']['out_of_topk'] += 1
+        # else:
+        #     topk_stats['rank_distribution'][rank] += 1
+        
+        # # このセグメントが正解かどうかを判定
+        # is_correct = selected_token in reference_tokens
+        # if is_correct and rank <= 5:
+        #     topk_stats['correct_in_topk'] += 1
+        
+        # # 詳細ログ
+        # logging.info(f"\n  セグメント {seg_idx + 1}:")
+        # logging.info(f"    選択: {selected_word} (トークンID: {selected_token})")
+        # logging.info(f"    確信度: {confidence:.4f}")
+        # logging.info(f"    TOP-5 順位: {rank if rank != -1 else '圏外'}")
+        # logging.info(f"    正解含む: {'✓' if is_correct else '✗'}")
+        # logging.info(f"    TOP-5 候補:")
+        
+        # for i, cand in enumerate(top_candidates, 1):
+        #     is_answer = '← 正解' if cand['token'] in reference_tokens else ''
+        #     logging.info(
+        #         f"      {i}位: {cand['word']} (ID:{cand['token']}) "
+        #         f"確率:{cand['prob']:.4f} {is_answer}"
+        #     )
+        
+        # # 詳細データを保存
+        # topk_stats['details'].append({
+        #     'sample_idx': batch_idx,
+        #     'segment_idx': seg_idx,
+        #     'selected_token': selected_token,
+        #     'selected_word': selected_word,
+        #     'rank': rank,
+        #     'confidence': confidence,
+        #     'is_correct': is_correct,
+        #     'reference_tokens': reference_tokens,
+        #     'top_candidates': top_candidates
+        # })

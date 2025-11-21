@@ -220,11 +220,9 @@ class Model(nn.Module):
         target_lengths:[batch]tgt_featureで最大値に伸ばしたので本当の長さ
         current_epoch: 現在のエポック番号（グラフ作成時に使用）
         """
-        
         N, C, T, J = src_feature.shape
         src_feature = src_feature.permute(0, 3, 1, 2).contiguous().view(N, C * J, T)
         spatial_feature = spatial_feature.permute(0, 2, 1)
-
         if torch.isnan(src_feature).any():
             print("警告: 入力src_featureにNaN値が検出されました")
             exit(1)
@@ -275,10 +273,9 @@ class Model(nn.Module):
         predictions = tm_outputs["predictions"]
         
         # 分類器の実行
-        outputs = self.classifier(predictions)
         
+        outputs = self.classifier(predictions)
         logging.info(f"最終出力形状: {outputs.shape}, 範囲: {outputs.min():.2f}~{outputs.max():.2f}")
-
        
         # デコード実行
         pred = self.decoder.decode(outputs, updated_lgt, batch_first=False, probs=False)
@@ -299,8 +296,15 @@ class Model(nn.Module):
             loss = self.criterion_calculation(ret_dict, tgt_feature, target_lengths)
             return loss, outputs
         else:
+            outputs_for_analysis = outputs.transpose(0, 1)  # (T, B, C)-> (B, T, C)
             # testモードでもlog_probsを返すオプションを追加
-            return pred, conv_pred, outputs
+            topk_result = self.decoder.AnalysisDecodeWithTopK(
+                nn_output=outputs_for_analysis,
+                vid_lgt=input_lengths,
+                probs=False,
+                top_k=5
+            )
+            return (pred, conv_pred, outputs, topk_result)
 
     def criterion_calculation(self, ret_dict, label, label_lgt):
         loss = 0

@@ -99,7 +99,7 @@ class Decode(object):
         # 語順違反に対するペナルティ重み
         self.sov_penalty_weight = 0.3
 
-    def decode(self, nn_output, vid_lgt, batch_first=True, probs=False):
+    def decode(self, nn_output, vid_lgt, batch_first=True, probs=False,):
         if not batch_first:
             nn_output = nn_output.permute(1, 0, 2)
         if self.search_mode == "max":
@@ -109,7 +109,7 @@ class Decode(object):
         else:
             return self.GreedySearch(nn_output, vid_lgt, probs)
 
-    def GreedySearch(self, nn_output, vid_lgt, probs=False):
+    def GreedySearch(self, nn_output, vid_lgt, probs=False, return_intermediate=False):
         """
         グリーディサーチによるCTC復号
         - 入力: nn_output (B, T, N), ソフトマックスを通すべき出力
@@ -123,6 +123,8 @@ class Decode(object):
         pred_labels = torch.argmax(nn_output, dim=2)  # (B, T)
 
         ret_list = []
+        intermediate_data = [] if return_intermediate else None
+
         for batch_idx, length in enumerate(vid_lgt):
             # 有効な長さだけを使用
             sequence = pred_labels[batch_idx, :length]
@@ -160,7 +162,132 @@ class Decode(object):
             logging.info(f"デコード結果: {decoded}")
             ret_list.append(decoded)
 
-        return ret_list
+             # 中間データを保存（分析用）
+            if return_intermediate:
+                intermediate_data.append({
+                    'batch_idx': batch_idx,
+                    'pred_labels': pred_labels[batch_idx, :length],  # (T,)
+                    'sequence_probs': nn_output[batch_idx, :length],  # (T, C)
+                    'grouped': grouped,
+                    'filtered': filtered,
+                    'length': length
+                })
+        if return_intermediate:
+            return ret_list, intermediate_data
+        else:
+            return ret_list
+    
+    def AnalysisDecodeWithTopK(self, nn_output, vid_lgt, probs=False, top_k=5):
+        # テスト専用：バッチサイズ=1を確認
+        assert nn_output.shape[0] == 1, "この関数はテスト専用（バッチサイズ=1）です"
+        
+        # GreedySearchを実行して中間データを取得
+        decoded_list, intermediate_data = self.GreedySearch(
+            nn_output, vid_lgt, probs=probs, return_intermediate=True
+        )
+        
+        # バッチ0のデータを取得
+        decoded = decoded_list[0]
+        intermediate = intermediate_data[0]
+        
+        pred_labels = intermediate['pred_labels']
+        sequence_probs = intermediate['sequence_probs']
+        filtered = intermediate['filtered']
+        length = intermediate['length']
+        
+        # 各セグメントのTOP-K分析
+        segment_analysis = []
+        current_token = None
+        segment_start = 0
+        
+        pred_labels_list = pred_labels.cpu().numpy()
+        
+        for t in range(len(pred_labels_list)):
+            token = pred_labels_list[t]
+            
+            # トークンが変わったら前のセグメントを処理
+            if token != current_token:
+                if current_token is not None and current_token != self.blank_id:
+                    # セグメントの平均確率を計算
+                    segment_probs = sequence_probs[segment_start:t].mean(dim=0)
+                    
+                    # TOP-K候補を取得
+                    topk_values, topk_indices = torch.topk(
+                        segment_probs, 
+                        k=min(top_k, self.num_classes)
+                    )
+                    
+                    # 選択されたトークンの順位
+                    topk_list = topk_indices.cpu().numpy().tolist()
+                    selected_rank = topk_list.index(current_token) + 1 if current_token in topk_list else -1
+                    
+                    segment_info = {
+                        'token': int(current_token),
+                        'word': self.i2g_dict.get(int(current_token), '<UNK>'),
+                        'frames': (segment_start, t),
+                        'frame_count': t - segment_start,
+                        'confidence': float(segment_probs[current_token].item()),
+                        'rank': selected_rank,
+                        'top_k_candidates': [
+                            {
+                                'token': int(idx),
+                                'word': self.i2g_dict.get(int(idx), '<UNK>'),
+                                'prob': float(val)
+                            }
+                            for val, idx in zip(topk_values.cpu().numpy(), topk_indices.cpu().numpy())
+                        ]
+                    }
+                    segment_analysis.append(segment_info)
+                
+                # 新しいセグメント開始
+                current_token = token
+                segment_start = t
+        
+        # 最後のセグメントを処理
+        if current_token is not None and current_token != self.blank_id:
+            segment_probs = sequence_probs[segment_start:].mean(dim=0)
+            topk_values, topk_indices = torch.topk(
+                segment_probs, 
+                k=min(top_k, self.num_classes)
+            )
+            
+            topk_list = topk_indices.cpu().numpy().tolist()
+            selected_rank = topk_list.index(current_token) + 1 if current_token in topk_list else -1
+            
+            segment_info = {
+                'token': int(current_token),
+                'word': self.i2g_dict.get(int(current_token), '<UNK>'),
+                'frames': (segment_start, length),
+                'frame_count': length - segment_start,
+                'confidence': float(segment_probs[current_token].item()),
+                'rank': selected_rank,
+                'top_k_candidates': [
+                    {
+                        'token': int(idx),
+                        'word': self.i2g_dict.get(int(idx), '<UNK>'),
+                        'prob': float(val)
+                    }
+                    for val, idx in zip(topk_values.cpu().numpy(), topk_indices.cpu().numpy())
+                ]
+            }
+            segment_analysis.append(segment_info)
+        
+        # 分析サマリーをログ出力
+        logging.info(f"=== TOP-{top_k} 分析サマリー ===")
+        logging.info(f"デコード結果: {[w for w, _ in decoded]}")
+        logging.info(f"総セグメント数: {len(segment_analysis)}")
+        
+        rank_distribution = {}
+        for seg in segment_analysis:
+            rank = seg['rank']
+            rank_distribution[rank] = rank_distribution.get(rank, 0) + 1
+        logging.info(f"順位分布: {rank_distribution}")
+        
+        return {
+            'decoded': decoded,
+            'segment_analysis': segment_analysis,
+            'total_frames': int(length)
+        }
 
     def get_word_category(self, word_id):
         """単語IDから品詞カテゴリを取得"""
