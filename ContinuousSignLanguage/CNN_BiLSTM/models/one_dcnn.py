@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import copy
-
+import numpy as np
 
 class MultiScaleTemporalConv(nn.Module):
     """
@@ -18,12 +18,12 @@ class MultiScaleTemporalConv(nn.Module):
         use_parallel_processing=False,
     ):
         super(MultiScaleTemporalConv, self).__init__()
-
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.target_frames = target_frames
         self.num_scales = len(target_frames)
         self.use_parallel_processing = use_parallel_processing
+        self.correlation = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
         # 各フレーム数に対応する多層畳み込みブランチを作成
         self.conv_branches = nn.ModuleList()
@@ -302,8 +302,25 @@ class MultiScaleTemporalConv(nn.Module):
                 nn.ReLU(inplace=True),
                 nn.Dropout(dropout_rate),
             )
-
-    def forward(self, x):
+        
+    def analyze_correlation(self, aligned_features):
+        new_aligned_features = []
+        for i, feat in enumerate(aligned_features):
+            if i == 0:
+                c = feat.size(1)
+            feat = feat[:, :c, :]
+            new_aligned_features.append(feat)
+        idx = 0
+        for i, feat in enumerate(new_aligned_features):
+            for j, other_feat in enumerate(new_aligned_features):
+                if i >= j:
+                    continue
+                correlation_value = np.corrcoef(feat.flatten(), other_feat.flatten())
+                print(f"Scale {self.target_frames[i]} & {self.target_frames[j]} correlation: {abs(correlation_value[0, 1]):.4f}")
+                self.correlation[idx] += abs(correlation_value[0, 1])
+                idx += 1
+        print("Accumulated correlations:", self.correlation)
+    def forward(self, x, analyze=False):
         # x: [B, C, T]
         scale_features = []
 
@@ -339,9 +356,11 @@ class MultiScaleTemporalConv(nn.Module):
             else:
                 aligned_feat = feat
             aligned_features.append(aligned_feat)
-
         # チャンネル次元で結合
         fused_features = torch.cat(aligned_features, dim=1)  # [B, hidden_size, T]
+        
+        if analyze:
+            self.analyze_correlation(aligned_features)
 
         # 融合層で最終特徴を生成
         output = self.fusion_layer(fused_features)
@@ -379,7 +398,7 @@ class DualMultiScaleTemporalConv(nn.Module):
         self.num_classes = num_classes
         self.blank_id = blank_id
         self.use_parallel_processing = use_parallel_processing
-
+    
         # 骨格データ用のMultiScaleTemporalConv
         self.skeleton_multiscale = MultiScaleTemporalConv(
             input_size=skeleton_input_size,

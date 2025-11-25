@@ -537,7 +537,7 @@ def analyze_topk_predictions(topk_result, reference_tokens, batch_idx, topk_stat
     logging.info(f"デコード結果: {[w for w, _ in decoded_words]}")
     # 各セグメントの分析
     for seg_idx, seg in enumerate(segment_analysis):
-        print(seg)
+        pass
         # topk_stats['total_segments'] += 1
         
         # selected_token = seg['token']
