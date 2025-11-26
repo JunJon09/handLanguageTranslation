@@ -18,6 +18,7 @@ openface/
 /movie_to_csv/*
 /csv_to_hdf5/*
 /ContinuousSignLanguage/CNN_BiLSTM/reports/figures/attention_test/*
+/ContinuousSignLanguage/CNN_BiLSTM/analysis_graphs_line/*
 !/relation_asl_sign/src
 !/movie_to_csv/src
 !/csv_to_hdf5/src

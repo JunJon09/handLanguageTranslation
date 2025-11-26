@@ -296,15 +296,16 @@ class Model(nn.Module):
             loss = self.criterion_calculation(ret_dict, tgt_feature, target_lengths)
             return loss, outputs
         else:
+            frame_analysis = self.decoder.analyze_topk_per_frame(outputs, updated_lgt)
             outputs_for_analysis = outputs.transpose(0, 1)  # (T, B, C)-> (B, T, C)
             # testモードでもlog_probsを返すオプションを追加
             topk_result = self.decoder.AnalysisDecodeWithTopK(
                 nn_output=outputs_for_analysis,
-                vid_lgt=input_lengths,
+                vid_lgt=updated_lgt,
                 probs=False,
                 top_k=5
             )
-            return (pred, conv_pred, outputs, topk_result)
+            return (pred, conv_pred, outputs, topk_result, frame_analysis)
 
     def criterion_calculation(self, ret_dict, label, label_lgt):
         loss = 0
@@ -436,22 +437,4 @@ class Model(nn.Module):
         device = input_lengths.device
         return torch.tensor(updated_lengths, dtype=torch.long, device=device)
 
-    def enable_attention_visualization(self):
-        """Attention重みの可視化を有効化"""
-        self._visualize_attention = True
-        self.last_attention_weights = None
 
-    def disable_attention_visualization(self):
-        """Attention重みの可視化を無効化"""
-        self._visualize_attention = False
-        self.last_attention_weights = None
-
-    def get_attention_weights(self):
-        """最後に計算されたAttention重みを取得"""
-        if (
-            hasattr(self, "last_attention_weights")
-            and self.last_attention_weights is not None
-        ):
-            return self.last_attention_weights.detach().cpu().numpy()
-        else:
-            return None

@@ -4,7 +4,7 @@ import os
 import CNN_BiLSTM.continuous_sign_language.config as config
 from collections import Counter
 import logging
-
+import seaborn as sns
 
 def train_loss_plot(losses_default):
 
@@ -256,3 +256,118 @@ def plot_word_error_distribution(word_error_counts, sorted_words, file_name):
 
         logging.error(f"Detailed error info: {traceback.format_exc()}")
         return False
+
+
+
+
+def visualize_frame_analysis_line(frame_analysis, batch_idx, pred_text="", truth_text=""):
+    SAVE_DIR = "./CNN_BiLSTM/analysis_graphs_line/line"
+    os.makedirs(SAVE_DIR, exist_ok=True)
+    frames = [item['frame'] for item in frame_analysis]
+    num_frames = len(frames)
+    k = len(frame_analysis[0]['candidates'])
+    
+    # 縦長になりすぎないよう調整しつつ、テキストエリアを確保
+    plt.figure(figsize=(12, 8)) 
+    
+    # --- カラーマップ設定 ---
+    colors = plt.cm.viridis(np.linspace(0, 0.9, k))
+    
+    # --- プロット処理 ---
+    for rank in range(k):
+        probs = []
+        words = []
+        for t in range(num_frames):
+            cand = frame_analysis[t]['candidates'][rank]
+            probs.append(float(cand['prob']))
+            words.append(cand['word'])
+        
+        # デザイン調整
+        linewidth = 2.5 if rank == 0 else 1.0
+        alpha = 1.0 if rank == 0 else 0.5
+        label = f"Rank {rank+1}"
+        
+        plt.plot(frames, probs, marker='o', label=label, 
+                 color=colors[rank], linewidth=linewidth, alpha=alpha)
+        
+        # 1位の単語を表示
+        if rank == 0:
+            for t, (prob, word) in enumerate(zip(probs, words)):
+                offset = 0.03 if t % 2 == 0 else -0.06
+                plt.text(frames[t], prob + offset, word, 
+                         ha='center', va='bottom', fontsize=9, fontweight='bold', rotation=45)
+
+    # --- テキスト情報の表示（ここが追加部分） ---
+    # グラフのタイトル領域に情報を詰め込む
+    title_str = f"Batch: {batch_idx}\n"
+    title_str += f"True: {truth_text}\n"  # 正解
+    title_str += f"Pred: {pred_text}"    # 予測
+    
+    plt.title(title_str, fontsize=12, loc='left', pad=20)
+
+    # --- 軸設定 ---
+    plt.xlabel("Time Frame")
+    plt.ylabel("Probability")
+    plt.ylim(-0.1, 1.15) # テキスト用に少し上を空ける
+    plt.xticks(frames)
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.legend(loc='upper right')
+    plt.tight_layout()
+    
+    # 保存
+    save_path = os.path.join(SAVE_DIR, f"line_batch_{batch_idx:04d}_sample_{0:02d}.png")
+    plt.savefig(save_path)
+    plt.close()
+
+def visualize_frame_analysis(frame_analysis, batch_idx, pred_text="", truth_text=""):
+    SAVE_DIR = "./CNN_BiLSTM/analysis_graphs_line/heatmap"
+    os.makedirs(SAVE_DIR, exist_ok=True)
+    # データを解析しやすい形に変換
+    # 行: ランク(1~5位), 列: フレーム(0~17)
+    
+    frames = [item['frame'] for item in frame_analysis]
+    num_frames = len(frames)
+    k = len(frame_analysis[0]['candidates']) # 通常は5
+    
+    # テキストデータと確率データの行列を作成
+    text_data = []
+    prob_data = []
+    
+    for rank in range(k):
+        row_text = []
+        row_prob = []
+        for t in range(num_frames):
+            cand = frame_analysis[t]['candidates'][rank]
+            row_text.append(cand['word'])
+            row_prob.append(float(cand['prob']))
+        text_data.append(row_text)
+        prob_data.append(row_prob)
+    
+    # --- 描画設定 ---
+    plt.figure(figsize=(num_frames * 1.5, k * 0.8)) # 横幅はフレーム数に合わせて自動調整
+    
+    # ヒートマップ作成 (確率は色で、単語は文字で表示)
+    ax = sns.heatmap(prob_data, annot=np.array(text_data), fmt="", 
+                     cmap="Blues", vmin=0, vmax=1,
+                     cbar_kws={'label': 'Probability'})
+    
+    # ラベル設定
+    title_str = f"Batch: {batch_idx}\n"
+    title_str += f"True: {truth_text}\n"  # 正解
+    title_str += f"Pred: {pred_text}"    # 予測
+    
+    plt.title(title_str, fontsize=12, loc='left', pad=20)
+    ax.set_title(f"Frame Analysis - Batch {batch_idx}")
+    ax.set_xlabel("Time Frame")
+    ax.set_ylabel("Rank")
+    
+    # 軸のメモリ設定
+    ax.set_xticklabels(frames)
+    ax.set_yticklabels([f"#{i+1}" for i in range(k)], rotation=0)
+    
+    plt.tight_layout()
+    
+    # 保存
+    save_path = os.path.join(SAVE_DIR, f"batch_{batch_idx:04d}_sample_{0:02d}.png")
+    plt.savefig(save_path)
+    plt.close() # メモリ解放のために必ず閉じる

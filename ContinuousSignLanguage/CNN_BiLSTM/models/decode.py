@@ -538,3 +538,58 @@ class Decode(object):
         loss = self.ctc_loss(log_probs, targets, input_lengths, target_lengths)
 
         return loss
+
+
+
+    def analyze_topk_per_frame(self, nn_output, vid_lgt, k=5):
+        
+        
+        # 確率変換とTopK取得
+        # probs: [18, 1, 1116]
+        probs = nn_output.softmax(dim=-1)
+        
+        # topk_indices: [18, 1, k] (ここで k=18 なら [18, 1, 18] になります)
+        topk_values, topk_indices = torch.topk(probs, k=k, dim=-1)
+
+        seq_len = vid_lgt[0]
+
+        print(f"Debug: topk shape = {topk_indices.shape}") # ここで形状を確認
+
+        frame_analysis = []
+        
+        # 時間方向のループ
+        for t in range(seq_len):
+            candidates = []
+            for i in range(k):
+                # --- 【修正箇所】 ---
+                # 3次元テンソル [Time, Batch, k] に対して
+                # [t番目の時間, 0番目のバッチ, i番目のランク] と指定します
+                class_id = topk_indices[t, 0, i].item()
+                prob = topk_values[t, 0, i].item()
+                
+                # 辞書処理
+                word = str(class_id)
+                if self.i2g_dict:
+                    if class_id in self.i2g_dict:
+                        word = self.i2g_dict[class_id]
+                    elif str(class_id) in self.i2g_dict:
+                        word = self.i2g_dict[str(class_id)]
+                candidates.append({
+                    'rank': i + 1,
+                    'id': class_id,
+                    'word': word,
+                    'prob': f"{prob:.4f}"
+                })
+            
+            # ログ出力
+            # top1 = candidates[0]
+            # kが1より大きい場合のみ2位を表示
+            # if len(candidates) > 1:
+            #     top2 = candidates[1]
+            #     print(f"Frame {t:03d}: 1st=[{top1['word']} ({top1['prob']})] | 2nd=[{top2['word']} ({top2['prob']})]")
+            # else:
+            #     print(f"Frame {t:03d}: 1st=[{top1['word']} ({top1['prob']})]")
+
+            frame_analysis.append({'frame': t, 'candidates': candidates})
+
+        return frame_analysis
