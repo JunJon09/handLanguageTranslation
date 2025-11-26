@@ -12,6 +12,7 @@ from torch import nn
 import numpy as np
 import torch
 from jiwer import wer, cer, mer
+import jiwer
 import logging
 import CNN_BiLSTM.continuous_sign_language.modeling.phoenx as phoenx
 
@@ -347,12 +348,14 @@ def test_loop(
             reference_text_list.append(reference_text[0])
             hypothesis_text_list.append(hypothesis_text[0])
             hypothesis_text_conv_list.append(hypothesis_text_conv[0])
+            calculate_wer_metrics(reference_text_list, hypothesis_text_list)
 
     logging.info(f"参照文リスト: {reference_text_list}")
     logging.info(f"予測文リスト: {hypothesis_text_list}")
 
     # WER評価指標の計算
     wer_metrics = calculate_wer_metrics(reference_text_list, hypothesis_text_list)
+    count_wer_detail(reference_text_list, hypothesis_text_list)
     awer = wer_metrics["awer"] if wer_metrics else 0.0
 
     print(f"テスト完了. 時間:{time.perf_counter()-start:.2f}秒")
@@ -363,6 +366,7 @@ def test_loop(
 
     retval = (awer, pred_times) if return_pred_times else awer
     return retval
+
 
 
 def save_model(save_path, model_default_dict, optimizer_dict, epoch):
@@ -467,7 +471,7 @@ def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
                 f"単語 '{word}': 誤り {stats['incorrect']}回 / 合計 {stats['total']}回 (誤り率: {error_rate:.2%})"
             )
 
-        # 全体的な評価指標を計算
+
         awer = wer(reference_text_list, hypothesis_text_list)
         error_rate_cer = cer(reference_text_list, hypothesis_text_list)
         error_rate_mer = mer(reference_text_list, hypothesis_text_list)
@@ -521,6 +525,67 @@ def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
     except Exception as e:
         logging.error(f"WER計算でエラー: {e}")
         return None
+
+
+def count_wer_detail(reference_text_list, hypothesis_text_list):
+    """
+    WERとその内訳（S, D, I）を計算してログ出力する関数
+    """
+    try:
+        refs_formatted = []
+        for ref in reference_text_list:
+            if isinstance(ref, list):
+                refs_formatted.append(" ".join(ref))
+            else:
+                refs_formatted.append(ref) # 既に文字列ならそのまま
+
+        hyps_formatted = []
+        for hyp in hypothesis_text_list:
+            if isinstance(hyp, list):
+                hyps_formatted.append(" ".join(hyp))
+            else:
+                hyps_formatted.append(hyp)
+
+        # 【計算】
+        # jiwer.process_words を使って一括計算します
+        # これにより、全体の S, D, I, H が正確に計算されます
+        output = jiwer.process_words(refs_formatted, hyps_formatted)
+        print(reference_text_list)
+        print(hypothesis_text_list)
+        # 【結果の取得】
+        wer_score = output.wer           # 全体のWER
+        substitutions = output.substitutions # S: 置換回数
+        deletions = output.deletions     # D: 削除回数
+        insertions = output.insertions   # I: 挿入回数
+        hits = output.hits               # H: 正解回数
+        total_words = substitutions + deletions + hits # 分母となる正解単語総数
+
+        # 【ログ出力】
+        logging.info("\n" + "="*30)
+        logging.info(" === WER 詳細分析結果 ===")
+        logging.info("="*30)
+        
+        # 全体スコア
+        logging.info(f"Overall WER        : {wer_score:.4f} ({wer_score*100:.2f}%)")
+        logging.info(f"Total Ref Words    : {total_words}")
+        
+        # S, D, I の内訳
+        logging.info("-" * 20)
+        logging.info(f"Hits (正解)        : {hits}")
+        logging.info(f"Substitutions (S)  : {substitutions}")
+        logging.info(f"Deletions (D)      : {deletions}")
+        logging.info(f"Insertions (I)     : {insertions}")
+        logging.info("-" * 20)
+        
+        # 参考: エラーの構成比率
+        total_errors = substitutions + deletions + insertions
+        if total_errors > 0:
+            logging.info(f"Error Distribution : S={(substitutions/total_errors):.1%} / D={(deletions/total_errors):.1%} / I={(insertions/total_errors):.1%}")
+        
+        logging.info("="*30 + "\n")
+
+    except Exception as e:
+        logging.error(f"WER計算でエラーが発生しました: {e}")
 
 def analyze_predictions(frame_analysis, batch_idx, pred, tokens, id2word, id_flag):
     token_list = tokens[0].tolist()
