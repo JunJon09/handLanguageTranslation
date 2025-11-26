@@ -260,15 +260,14 @@ def plot_word_error_distribution(word_error_counts, sorted_words, file_name):
 
 
 
-def visualize_frame_analysis_line(frame_analysis, batch_idx, pred_text="", truth_text=""):
-    SAVE_DIR = "./CNN_BiLSTM/analysis_graphs_line/line"
+def visualize_frame_analysis_line(frame_analysis, batch_idx, pred_text="", truth_text="", SAVE_DIR="./CNN_BiLSTM/analysis_graphs/line"):
     os.makedirs(SAVE_DIR, exist_ok=True)
     frames = [item['frame'] for item in frame_analysis]
     num_frames = len(frames)
     k = len(frame_analysis[0]['candidates'])
     
     # 縦長になりすぎないよう調整しつつ、テキストエリアを確保
-    plt.figure(figsize=(12, 8)) 
+    plt.figure(figsize=(14, 9))  # 少し大きくしました
     
     # --- カラーマップ設定 ---
     colors = plt.cm.viridis(np.linspace(0, 0.9, k))
@@ -287,18 +286,43 @@ def visualize_frame_analysis_line(frame_analysis, batch_idx, pred_text="", truth
         alpha = 1.0 if rank == 0 else 0.5
         label = f"Rank {rank+1}"
         
+        # 線をプロット
         plt.plot(frames, probs, marker='o', label=label, 
                  color=colors[rank], linewidth=linewidth, alpha=alpha)
         
-        # 1位の単語を表示
+        # --- 単語を表示（全ランク対応） ---
+        
+        # ランクに応じた文字スタイルの設定
         if rank == 0:
-            for t, (prob, word) in enumerate(zip(probs, words)):
-                offset = 0.03 if t % 2 == 0 else -0.06
-                plt.text(frames[t], prob + offset, word, 
-                         ha='center', va='bottom', fontsize=9, fontweight='bold', rotation=45)
+            fontsize = 10
+            fontweight = 'bold'
+            text_color = 'black' # 1位は読みやすく黒
+        else:
+            fontsize = 7
+            fontweight = 'normal'
+            text_color = colors[rank] # 2位以下は線と同じ色にして対応関係を明確に
+            
+        for t, (prob, word) in enumerate(zip(probs, words)):
+            # 重なり防止のためのオフセット計算
+            # 偶数順位(0, 2, 4...)は上に、奇数順位(1, 3...)は下にずらす
+            # さらにランクが下がるほど、中心から少し離す
+            
+            if rank == 0:
+                offset = 0.03 # 1位は常に少し上
+            else:
+                # Rank 1 -> 下(-), Rank 2 -> 上(+), Rank 3 -> 下(-)...
+                sign = -1 if rank % 2 != 0 else 1
+                # ランクが下がるごとに少しずつオフセット量を増やす
+                base_dist = 0.04
+                step = 0.015
+                offset = sign * (base_dist + (rank * step))
 
-    # --- テキスト情報の表示（ここが追加部分） ---
-    # グラフのタイトル領域に情報を詰め込む
+            plt.text(frames[t], prob + offset, word, 
+                     ha='center', va='center', 
+                     fontsize=fontsize, fontweight=fontweight, 
+                     color=text_color, rotation=45)
+
+    # --- テキスト情報の表示 ---
     title_str = f"Batch: {batch_idx}\n"
     title_str += f"True: {truth_text}\n"  # 正解
     title_str += f"Pred: {pred_text}"    # 予測
@@ -308,7 +332,7 @@ def visualize_frame_analysis_line(frame_analysis, batch_idx, pred_text="", truth
     # --- 軸設定 ---
     plt.xlabel("Time Frame")
     plt.ylabel("Probability")
-    plt.ylim(-0.1, 1.15) # テキスト用に少し上を空ける
+    plt.ylim(-0.2, 1.2) # 文字表示用に上下の余白を広げました
     plt.xticks(frames)
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.legend(loc='upper right')
@@ -319,8 +343,8 @@ def visualize_frame_analysis_line(frame_analysis, batch_idx, pred_text="", truth
     plt.savefig(save_path)
     plt.close()
 
-def visualize_frame_analysis(frame_analysis, batch_idx, pred_text="", truth_text=""):
-    SAVE_DIR = "./CNN_BiLSTM/analysis_graphs_line/heatmap"
+
+def visualize_frame_analysis(frame_analysis, batch_idx, pred_text="", truth_text="", SAVE_DIR="./CNN_BiLSTM/analysis_graphs/heatmap"):
     os.makedirs(SAVE_DIR, exist_ok=True)
     # データを解析しやすい形に変換
     # 行: ランク(1~5位), 列: フレーム(0~17)

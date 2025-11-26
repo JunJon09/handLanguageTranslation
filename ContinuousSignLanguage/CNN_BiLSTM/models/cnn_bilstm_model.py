@@ -68,6 +68,7 @@ class Model(nn.Module):
         self.cnn_model_type = cnn_model_type
         self.temporal_model_type = temporal_model_type
         self.num_classes = num_classes
+        self.analyze_predictions = True
 
 
         if self.cnn_model_type == "DualCNNWithCTC":
@@ -296,16 +297,19 @@ class Model(nn.Module):
             loss = self.criterion_calculation(ret_dict, tgt_feature, target_lengths)
             return loss, outputs
         else:
-            frame_analysis = self.decoder.analyze_topk_per_frame(outputs, updated_lgt)
-            outputs_for_analysis = outputs.transpose(0, 1)  # (T, B, C)-> (B, T, C)
-            # testモードでもlog_probsを返すオプションを追加
-            topk_result = self.decoder.AnalysisDecodeWithTopK(
+            if self.analyze_predictions:
+                frame_analysis = self.decoder.analyze_topk_per_frame(outputs, updated_lgt)
+                frame_analysis_without_blank = self.decoder.analyze_topk_per_frame_without_blank(outputs, updated_lgt)
+                outputs_for_analysis = outputs.transpose(0, 1)  # (T, B, C)-> (B, T, C)
+                topk_result = self.decoder.AnalysisDecodeWithTopK(
                 nn_output=outputs_for_analysis,
                 vid_lgt=updated_lgt,
                 probs=False,
                 top_k=5
-            )
-            return (pred, conv_pred, outputs, topk_result, frame_analysis)
+                )
+                return (pred, conv_pred, outputs, topk_result, frame_analysis, frame_analysis_without_blank)
+            
+            return (pred, conv_pred, outputs)
 
     def criterion_calculation(self, ret_dict, label, label_lgt):
         loss = 0

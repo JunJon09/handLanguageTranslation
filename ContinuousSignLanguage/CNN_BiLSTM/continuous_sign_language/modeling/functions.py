@@ -309,9 +309,10 @@ def test_loop(
                 topk_result = None
             elif len(forward_result) == 4:
                 pred, conv_pred, sequence_logits, topk_result = forward_result
-            elif len(forward_result) == 5:
-                pred, conv_pred, sequence_logits, topk_result, frame_analysis = forward_result
-                analyze_predictions(frame_analysis, batch_idx, pred, tokens, id2word)
+            elif len(forward_result) == 6:
+                pred, conv_pred, sequence_logits, topk_result, frame_analysis, frame_analysis_without_blank = forward_result
+                analyze_predictions(frame_analysis, batch_idx, pred, tokens, id2word, True)
+                analyze_predictions(frame_analysis_without_blank, batch_idx, pred, tokens, id2word, False)
             else:
                 pred, conv_pred = forward_result
                 sequence_logits = None
@@ -521,15 +522,18 @@ def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
         logging.error(f"WER計算でエラー: {e}")
         return None
 
-def analyze_predictions(frame_analysis, batch_idx, pred, tokens, id2word):
+def analyze_predictions(frame_analysis, batch_idx, pred, tokens, id2word, id_flag):
     token_list = tokens[0].tolist()
     decoded_words = [id2word[int(idx)] for idx in token_list if int(idx) in id2word]
     decoded_text = " ".join(decoded_words)
     predicted_words = [word for word, _ in pred[0]]
     predicted_text = " ".join(predicted_words)
-    plots.visualize_frame_analysis_line(frame_analysis, batch_idx, predicted_text, decoded_text)
-    plots.visualize_frame_analysis(frame_analysis, batch_idx, predicted_text, decoded_text)
-
+    if id_flag:
+        plots.visualize_frame_analysis_line(frame_analysis, batch_idx, predicted_text, decoded_text, "./CNN_BiLSTM/analysis_graphs/line")
+        plots.visualize_frame_analysis(frame_analysis, batch_idx, predicted_text, decoded_text, "./CNN_BiLSTM/analysis_graphs/heatmap")
+    else:
+        plots.visualize_frame_analysis_line(frame_analysis, batch_idx, predicted_text, decoded_text, "./CNN_BiLSTM/analysis_graphs/line_without_id")
+        plots.visualize_frame_analysis(frame_analysis, batch_idx, predicted_text, decoded_text, "./CNN_BiLSTM/analysis_graphs/heatmap_without_id")
 
 def analyze_topk_predictions(topk_result, reference_tokens, batch_idx, topk_stats):
     """
