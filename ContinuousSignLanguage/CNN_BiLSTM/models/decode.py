@@ -554,8 +554,6 @@ class Decode(object):
 
         seq_len = vid_lgt[0]
 
-        print(f"Debug: topk shape = {topk_indices.shape}") # ここで形状を確認
-
         frame_analysis = []
         
         # 時間方向のループ
@@ -604,7 +602,6 @@ class Decode(object):
 
         seq_len = vid_lgt[0]
 
-        print(f"Debug: topk shape = {topk_indices.shape}")
 
         frame_analysis = []
         
