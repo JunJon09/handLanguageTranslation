@@ -15,6 +15,7 @@ from jiwer import wer, cer, mer
 import jiwer
 import logging
 import CNN_BiLSTM.continuous_sign_language.modeling.phoenx as phoenx
+import csv
 
 def set_dataloader(key2token, mode_hdf5files, val_hdf5files, mode):
     _, use_landmarks = features.get_fullbody_landmarks()
@@ -276,7 +277,7 @@ def test_loop(
             spatial_feature_pad_mask = batch_sample["spatial_feature_pad_mask"]
             tokens_pad_mask = batch_sample["token_pad_mask"]
             feature_lengths = batch_sample["feature_lengths"]
-
+            decoded_words = [id2word[int(idx)] for idx in tokens[0].tolist() if int(idx) in id2word]
             feature = feature.to(device)
             spatial_feature = spatial_feature.to(device)
             tokens = tokens.to(device)
@@ -303,6 +304,8 @@ def test_loop(
                 target_lengths=target_lengths,
                 mode="test",
             )
+            pred_end = time.perf_counter()
+            write_csv_processing_time(batch_idx, pred_end - pred_start, decoded_words)
             
             # 戻り値の数に応じて処理を分岐
             if len(forward_result) == 3:
@@ -348,8 +351,7 @@ def test_loop(
             reference_text_list.append(reference_text[0])
             hypothesis_text_list.append(hypothesis_text[0])
             hypothesis_text_conv_list.append(hypothesis_text_conv[0])
-            calculate_wer_metrics(reference_text_list, hypothesis_text_list)
-
+    
     logging.info(f"参照文リスト: {reference_text_list}")
     logging.info(f"予測文リスト: {hypothesis_text_list}")
 
@@ -586,6 +588,17 @@ def count_wer_detail(reference_text_list, hypothesis_text_list):
 
     except Exception as e:
         logging.error(f"WER計算でエラーが発生しました: {e}")
+
+
+def write_csv_processing_time(id, processing_time, orth):
+    file_path = "./processing_time_phoenix.csv"
+    file_exists = os.path.isfile(file_path)
+    fieldnames = ['id', 'time', 'orth']
+    with open(file_path, mode='a', newline='', encoding='utf_8_sig') as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(fieldnames)
+        writer.writerow([id, processing_time, orth])
 
 def analyze_predictions(frame_analysis, batch_idx, pred, tokens, id2word, id_flag):
     token_list = tokens[0].tolist()
