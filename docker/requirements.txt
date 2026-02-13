@@ -7,7 +7,7 @@ pandas
 cramjam==2.8.4
 fastparquet==2024.5.0
 fsspec==2024.9.0
-numpy==2.0.1
+numpy==1.26.4
 packaging==24.1
 pyarrow==17.0.0
 python-dateutil==2.9.0.post0

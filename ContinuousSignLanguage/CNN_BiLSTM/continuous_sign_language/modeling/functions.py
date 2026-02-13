@@ -16,6 +16,9 @@ import jiwer
 import logging
 import CNN_BiLSTM.continuous_sign_language.modeling.phoenx as phoenx
 import csv
+import pandas as pd
+from collections import defaultdict
+
 
 def set_dataloader(key2token, mode_hdf5files, val_hdf5files, mode):
     _, use_landmarks = features.get_fullbody_landmarks()
@@ -345,6 +348,13 @@ def test_loop(
                 for sample in conv_pred
             ]
             hypothesis_text_conv = [" ".join(map(str, seq)) for seq in conv_pred_words]
+
+            write_recognition_results_to_csv(
+                batch_idx=batch_idx,
+                reference_text=reference_text[0],
+                predicted_text=hypothesis_text[0],
+                id2word=id2word
+            )
             if topk_result is not None:
                 analyze_topk_predictions(topk_result, tokens[0], batch_idx, topk_stats)
 
@@ -473,7 +483,6 @@ def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
                 f"単語 '{word}': 誤り {stats['incorrect']}回 / 合計 {stats['total']}回 (誤り率: {error_rate:.2%})"
             )
 
-
         awer = wer(reference_text_list, hypothesis_text_list)
         error_rate_cer = cer(reference_text_list, hypothesis_text_list)
         error_rate_mer = mer(reference_text_list, hypothesis_text_list)
@@ -510,23 +519,40 @@ def calculate_wer_metrics(reference_text_list, hypothesis_text_list):
             word_error_counts.items(), 
             key=lambda x: x[1]["incorrect"] / x[1]["total"] if x[1]["total"] > 0 else 0, 
             reverse=False
-)
+        )
+        
         # 4つのグラフを生成
         plots.plot_word_error_distribution(word_error_counts, sorted_words_count_desc, "count_desc.png")
         plots.plot_word_error_distribution(word_error_counts, sorted_words_count_asc, "count_asc.png")
         plots.plot_word_error_distribution(word_error_counts, sorted_words_rate_desc, "rate_desc.png")
         plots.plot_word_error_distribution(word_error_counts, sorted_words_rate_asc, "rate_asc.png")
 
+        # # === 削除エラー（D）と置換エラー（S）の詳細分析を追加 ===
+        # logging.info("\n=== 削除・置換エラーの詳細分析を開始 ===")
+        # deletion_analysis = analyze_deletions(reference_text_list, hypothesis_text_list)
+        # substitution_analysis = analyze_substitutions(reference_text_list, hypothesis_text_list)
+        
+        # # CSV出力
+        # save_deletion_analysis_to_csv(deletion_analysis)
+        # save_substitution_analysis_to_csv(substitution_analysis)
+        
+        # return {
+        #     "awer": awer,
+        #     "cer": error_rate_cer,
+        #     "mer": error_rate_mer,
+        #     "label_wer": label_wer,
+        #     "deletion_analysis": deletion_analysis,
+        #     "substitution_analysis": substitution_analysis,
+        # }
         return {
-            "awer": awer,
-            "cer": error_rate_cer,
-            "mer": error_rate_mer,
-            "label_wer": label_wer,
+            "awer": awer
         }
 
     except Exception as e:
         logging.error(f"WER計算でエラー: {e}")
         return None
+
+
 
 
 def count_wer_detail(reference_text_list, hypothesis_text_list):
@@ -599,6 +625,35 @@ def write_csv_processing_time(id, processing_time, orth):
         if not file_exists:
             writer.writerow(fieldnames)
         writer.writerow([id, processing_time, orth])
+
+def write_recognition_results_to_csv(batch_idx, reference_text, predicted_text, id2word, output_path='./recognition_results.csv'):
+    """
+    認識結果と正解単語をCSVに出力する関数
+    
+    Args:
+        batch_idx: サンプルID
+        reference_text: 正解テキスト（文字列）
+        predicted_text: 予測テキスト（文字列）
+        output_path: 出力CSVファイルパス
+    """
+    file_exists = os.path.isfile(output_path)
+    reference_text = reference_text.split()
+    refer_text = ""
+    predicted_text = predicted_text.split()
+    pre_text = ""
+    for word in reference_text:
+        refer_text += id2word.get(int(word), f'<UNK:{word}>') + " "
+    for word in predicted_text:
+        pre_text += id2word.get(int(word), f'<UNK:{word}>') + " "
+
+    
+    with open(output_path, mode='a', newline='', encoding='utf_8_sig') as f:
+        writer = csv.writer(f)
+        
+        if not file_exists:
+            writer.writerow(['id', 'reference_text', 'predicted_text'])
+        
+        writer.writerow([batch_idx, refer_text, pre_text])
 
 def analyze_predictions(frame_analysis, batch_idx, pred, tokens, id2word, id_flag):
     token_list = tokens[0].tolist()
@@ -679,3 +734,225 @@ def analyze_topk_predictions(topk_result, reference_tokens, batch_idx, topk_stat
         #     'reference_tokens': reference_tokens,
         #     'top_candidates': top_candidates
         # })
+    
+def analyze_deletions(reference_text_list, hypothesis_text_list):
+    """削除エラー（D）の詳細分析を行う"""
+    deletion_stats = defaultdict(lambda: {
+        'deletion_count': 0,
+        'total_occurrences': 0,
+        'positions': [],
+        'contexts': []
+    })
+    
+    for ref, hyp in zip(reference_text_list, hypothesis_text_list):
+        ref_words = ref.split()
+        hyp_words = hyp.split()
+        
+        for word_idx, ref_word in enumerate(ref_words):
+            deletion_stats[ref_word]['total_occurrences'] += 1
+            deletion_stats[ref_word]['positions'].append(word_idx)
+            
+            # 削除されたかチェック
+            if ref_word not in hyp_words:
+                deletion_stats[ref_word]['deletion_count'] += 1
+                
+                context_start = max(0, word_idx - 2)
+                context_end = min(len(ref_words), word_idx + 3)
+                context = ' '.join(ref_words[context_start:context_end])
+                deletion_stats[ref_word]['contexts'].append({
+                    'position': word_idx,
+                    'context': context,
+                    'full_ref': ref,
+                    'full_hyp': hyp
+                })
+    
+    for word, stats in deletion_stats.items():
+        if stats['positions']:
+            stats['avg_position'] = sum(stats['positions']) / len(stats['positions'])
+        else:
+            stats['avg_position'] = 0
+    
+    return dict(deletion_stats)
+
+
+def analyze_substitutions(reference_text_list, hypothesis_text_list):
+    """置換エラー（S）の詳細分析を行う"""
+    substitution_stats = defaultdict(lambda: {
+        'substitution_count': 0,
+        'total_occurrences': 0,
+        'substituted_to': defaultdict(int),
+        'positions': [],
+        'contexts': []
+    })
+    
+    for ref, hyp in zip(reference_text_list, hypothesis_text_list):
+        ref_words = ref.split()
+        hyp_words = hyp.split()
+        
+        # 正解と予測の単語数を揃える（簡易的なアライメント）
+        max_len = max(len(ref_words), len(hyp_words))
+        
+        for word_idx in range(len(ref_words)):
+            ref_word = ref_words[word_idx]
+            substitution_stats[ref_word]['total_occurrences'] += 1
+            substitution_stats[ref_word]['positions'].append(word_idx)
+            
+            # 同じ位置の予測単語を取得（存在する場合）
+            if word_idx < len(hyp_words):
+                hyp_word = hyp_words[word_idx]
+                
+                # 置換されたかチェック（単語が異なる場合）
+                if ref_word != hyp_word:
+                    substitution_stats[ref_word]['substitution_count'] += 1
+                    substitution_stats[ref_word]['substituted_to'][hyp_word] += 1
+                    
+                    context_start = max(0, word_idx - 2)
+                    context_end = min(len(ref_words), word_idx + 3)
+                    context = ' '.join(ref_words[context_start:context_end])
+                    
+                    substitution_stats[ref_word]['contexts'].append({
+                        'position': word_idx,
+                        'context': context,
+                        'substituted_to': hyp_word,
+                        'full_ref': ref,
+                        'full_hyp': hyp
+                    })
+    
+    # 平均位置の計算と辞書の変換
+    for word, stats in substitution_stats.items():
+        if stats['positions']:
+            stats['avg_position'] = sum(stats['positions']) / len(stats['positions'])
+        else:
+            stats['avg_position'] = 0
+        stats['substituted_to'] = dict(stats['substituted_to'])
+    
+    return dict(substitution_stats)
+
+
+def save_deletion_analysis_to_csv(deletion_analysis, output_path='./deletion_error_analysis.csv'):
+    """削除エラー分析結果をCSVに保存"""
+    rows = []
+    
+    for word, stats in deletion_analysis.items():
+        deletion_count = stats['deletion_count']
+        total_count = stats['total_occurrences']
+        avg_position = stats['avg_position']
+        
+        deletion_rate = deletion_count / total_count if total_count > 0 else 0
+        
+        contexts_sample = stats['contexts'][:3]
+        context_str = ' | '.join([ctx['context'] for ctx in contexts_sample])
+        
+        rows.append({
+            '単語名': word,
+            '削除回数': deletion_count,
+            '出現回数': total_count,
+            '削除率': f'{deletion_rate:.2%}',
+            '平均出現位置': f'{avg_position:.1f}',
+            '代表的な文脈': context_str,
+            '推測される原因': infer_deletion_cause(stats)
+        })
+    
+    df = pd.DataFrame(rows)
+    df = df.sort_values('削除回数', ascending=False)
+    df.to_csv(output_path, index=False, encoding='utf_8_sig')
+    logging.info(f"削除エラー分析結果を {output_path} に保存しました")
+    logging.info("\n=== 削除エラーが多い単語 TOP 10 ===")
+    logging.info(df.head(10).to_string(index=False))
+
+
+def save_substitution_analysis_to_csv(substitution_analysis, output_path='./substitution_error_analysis.csv'):
+    """置換エラー分析結果をCSVに保存"""
+    rows = []
+    
+    for word, stats in substitution_analysis.items():
+        # キーの存在確認とデフォルト値の設定
+        substitution_count = stats.get('substitution_count', 0)
+        total_count = stats.get('total_occurrences', 0)
+        avg_position = stats.get('avg_position', 0)
+        
+        substitution_rate = substitution_count / total_count if total_count > 0 else 0
+        
+        substituted_to = stats.get('substituted_to', {})
+        if substituted_to:
+            top_substitutions = sorted(
+                substituted_to.items(), 
+                key=lambda x: x[1], 
+                reverse=True
+            )[:3]
+            substituted_to_str = ' | '.join([f"{w}({c}回)" for w, c in top_substitutions])
+        else:
+            substituted_to_str = ''
+        
+        contexts = stats.get('contexts', [])
+        contexts_sample = contexts[:3]
+        context_str = ' | '.join([
+            f"{ctx.get('context', '')}→{ctx.get('substituted_to', '')}" 
+            for ctx in contexts_sample
+        ])
+        
+        rows.append({
+            '単語名': word,
+            '置換回数': substitution_count,
+            '出現回数': total_count,
+            '置換率': f'{substitution_rate:.2%}',
+            '平均出現位置': f'{avg_position:.1f}',
+            'よく誤認識される単語': substituted_to_str,
+            '代表的な文脈': context_str,
+            '推測される原因': infer_substitution_cause(stats)
+        })
+    
+    if not rows:
+        logging.warning("置換エラーのデータがありません。CSVは作成されません。")
+        return
+    
+    df = pd.DataFrame(rows)
+    df = df.sort_values('置換回数', ascending=False)
+    df.to_csv(output_path, index=False, encoding='utf_8_sig')
+    logging.info(f"置換エラー分析結果を {output_path} に保存しました")
+    logging.info("\n=== 置換エラーが多い単語 TOP 10 ===")
+    logging.info(df.head(10).to_string(index=False))
+
+
+def infer_deletion_cause(stats):
+    """削除エラーの推測される原因"""
+    deletion_rate = stats['deletion_count'] / stats['total_occurrences']
+    avg_position = stats['avg_position']
+    
+    causes = []
+    if deletion_rate > 0.7:
+        causes.append('高頻度削除')
+    if avg_position > 5:
+        causes.append('文末の動きが曖昧')
+    if avg_position < 2:
+        causes.append('文頭の動きが不明瞭')
+    if stats['total_occurrences'] < 10:
+        causes.append('学習データ不足')
+    
+    return ', '.join(causes) if causes else '要詳細分析'
+
+
+def infer_substitution_cause(stats):
+    """置換エラーの推測される原因"""
+    substitution_count = stats.get('substitution_count', 0)
+    total_occurrences = stats.get('total_occurrences', 1)  # ゼロ除算回避
+    avg_position = stats.get('avg_position', 0)
+    substituted_to = stats.get('substituted_to', {})
+    
+    substitution_rate = substitution_count / total_occurrences if total_occurrences > 0 else 0
+    
+    causes = []
+    if substitution_rate > 0.7:
+        causes.append('高頻度誤認識')
+    if substituted_to and substitution_count > 0:
+        max_substitution = max(substituted_to.values())
+        if max_substitution / substitution_count > 0.5:
+            causes.append('特定単語との混同')
+    if avg_position > 5:
+        causes.append('文末での認識困難')
+    if avg_position < 2:
+        causes.append('文頭での認識困難')
+    if total_occurrences < 10:
+        causes.append('学習データ不足')
+    
+    return ', '.join(causes) if causes else '要詳細分析'

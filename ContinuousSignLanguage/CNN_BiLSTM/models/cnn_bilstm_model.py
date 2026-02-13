@@ -68,7 +68,7 @@ class Model(nn.Module):
         self.cnn_model_type = cnn_model_type
         self.temporal_model_type = temporal_model_type
         self.num_classes = num_classes
-        self.analyze_predictions = True
+        self.analyze_predictions = False
 
 
         if self.cnn_model_type == "DualCNNWithCTC":
@@ -209,10 +209,10 @@ class Model(nn.Module):
         self,
         src_feature,
         spatial_feature,
-        tgt_feature,
-        input_lengths,
-        target_lengths,
-        mode,
+        tgt_feature=None,
+        input_lengths=None,
+        target_lengths=None,
+        mode="test",
     ):
         """
         src_feature:[batch, C, T, J]

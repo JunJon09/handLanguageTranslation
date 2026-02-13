@@ -9,6 +9,7 @@ def get_fullbody_landmarks():
     USE_FACE = np.sort(
         np.unique(config.USE_LIP_OUTER + config.USE_LIP_INNER + config.USE_LIP_CORNERS_CENTER + config.USE_NOSE + config.EAR_POINTS)
     )
+    # USE_FACE = np.sort(list(range(477)))
     use_landmarks = np.concatenate([USE_FACE, config.USE_LHAND, config.USE_POSE, config.USE_RHAND])
     use_landmarks_filtered = np.arange(len(use_landmarks))
     print(f"顔: {len(USE_FACE)}, 手: {len(config.USE_LHAND) + len(config.USE_RHAND)}, 体: {len(config.USE_POSE)}, 使用する合計ランドマーク数: {len(use_landmarks)}")
@@ -346,6 +347,8 @@ class PartsBasedNormalization:
             l_spatial_feature = self.__normalize_spatial__(
                 feature, l_spatial_feature, self.lhand_unit1, self.lhand_unit2
             )
+            # l_spatial_feature = np.zeros_like(l_spatial_feature)
+           
             lhand = self._normalize(lhand, self.lhand_origin, self.lhand_unit1, self.lhand_unit2)
             feature[:, :, self.lhand_head : self.lhand_head + self.lhand_num] = lhand
             
@@ -372,6 +375,7 @@ class PartsBasedNormalization:
             r_spatial_feature = self.__normalize_spatial__(
                 feature, r_spatial_feature, self.rhand_unit1, self.rhand_unit2
             )
+            # r_spatial_feature = np.zeros_like(r_spatial_feature)
             rhand = self._normalize(rhand, self.rhand_origin, self.rhand_unit1, self.rhand_unit2)
             feature[:, :, self.rhand_head : self.rhand_head + self.rhand_num] = rhand
             
@@ -393,7 +397,6 @@ class PartsBasedNormalization:
         
         # Z-score標準化を適用（機械学習用の最終調整）
         #feature = self.apply_zscore_normalization(feature)
-        
         data["feature"] = feature
         data["spatial_feature"] = spatial_feature
         return data

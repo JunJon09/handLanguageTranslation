@@ -629,7 +629,8 @@ class DualFeatureTemporalConv(nn.Module):
 
     def update_lgt(self, lgt):
         """系列長の更新"""
-        feat_len = copy.deepcopy(lgt)
+        # TorchScriptトレース対応: copy.deepcopyの代わりにclone()を使用
+        feat_len = lgt.clone()
         for ks in (
             self.kernel_size
             if hasattr(self, "kernel_size")
