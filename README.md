@@ -2,17 +2,20 @@
 手話翻訳の研究
 
 ## リポジトリの内容
-手話はろう者が使用する直接的なコミュ二ケーション手段である．健聴者が日常会話の手話を習得するには約3年必要とされており，手話の自動翻訳が望まれている．そのため、動画内に一つの手話単語が存在する孤立手話単語認識及び動画内に複数の手話単語が存在する連続手話単語認識を行っている
+手話はろう者が使用する直接的なコミュ二ケーション手段である．健聴者が日常会話の手話を習得するには約3年必要とされており，手話の自動翻訳が望まれている．そのため，動画内に一つの手話単語が存在する孤立手話単語認識及び動画内に複数の手話単語が存在する連続手話単語認識を行っている
 
 ## 実行コマンド
 ```bash
 docker compose up
 ```
-但し、csv_to_hdf5, movie_to_csv, relation_asl_signについては動画の前処理のため自分で環境を設定して下さい
 
-また、認識の実験を行いたい場合、hdf5を自分で作成して下さい
+## データセットについて
+以下のファイル構成からhdf5を挿入してください．<br>
+但し、csv_to_hdf5, movie_to_csvを参考にしながら動画ファイル->csv->hdf5という感じで作成してください．
 
-もし実験的にすぐ使い方で孤立手話単語認識の場合は、[リンク](https://drive.google.com/file/d/1mQGin0n8W86VYyUIcAdARdt1zrZ4PWDo/view?usp=sharing)からファイルをダウンロードして以下のようなファイル構成にして動かして下さい。各ファイルに詳しい実行コマンドが書いてあります。
+もし実験的にすぐ使い方で孤立手話単語認識の場合は，[リンク](https://drive.google.com/file/d/1mQGin0n8W86VYyUIcAdARdt1zrZ4PWDo/view?usp=sharing)からファイルをダウンロードして以下のようなファイル構成にして動かして下さい．各ファイルに詳しい実行コマンドが書いてあります．
+
+また連続手話認識における実験データセットの中で[RWTH-PHOENIX-Weather 2014 T](https://www-i6.informatik.rwth-aachen.de/~koller/RWTH-PHOENIX-2014-T/)は，その専用の[コード](https://github.com/SawanoLab/phoenix-2014-mediapipe-converter)があります．ただ，hdf5のデータセットは，研究室においてあるSSDの中に全てあります．
 
 ## ファイル構成
 <pre>
@@ -71,16 +74,15 @@ LSA64からMediaPipeで骨格座標を取得し、その後線形補間を行い
 ### 連続手話単語認識
 
 #### データセット内容
-[ここ](https://takayama-rado.com/articles/gasl_1.html)に詳しく書いてあります。
-現状連続手話単単語データセットはあまりないので連続指文字のデータセットで行った。
+[ここ](https://takayama-rado.com/articles/gasl_1.html)に詳しく書いてあります．
+データセットは，RWTH-PHOENIX-Weather 2014 Tで行いました．
 
 #### Lossの結果
-![](ContinuousSignLanguage/transformer/reports/figures/transformer_loss.png)
+![](ContinuousSignLanguage/CNN_BiLSTM/reports/figures/cnn_transformer_train_val_loss.png)
 
 #### Test結果
-![](ContinuousSignLanguage/transformer/reports/figures/transformer_test_accuracy.png)
+WER:  0.41346153846153844
 
-WER率 70%
 
 WER（Word Error Rate、単語誤り率）は、音声認識や機械翻訳などの自然言語処理システムの性能を評価するためによく使用される指標。WERは、システムが出力した文（仮説文）と正しい文（参照文）との間で発生した単語の置換（Substitutions）、削除（Deletions）、挿入（Insertions）の総数を基に計算される。
 
