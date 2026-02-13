@@ -8,6 +8,7 @@
 ```bash
 docker compose up
 ```
+その後，連続手話認識のフォルダに行き，READMEを見ながらコードを動かしてください．
 
 ## データセットについて
 以下のファイル構成からhdf5を挿入してください．<br>
@@ -21,9 +22,9 @@ docker compose up
 <pre>
 handLanguageTranslation/
 ├── ContinuousSignLanguage #連続手話単語認識関連
-│   ├── cnn　未実装
-│   ├── conformer 未実装
-│   └── transformer
+│   ├── CNN_BiLSTM <- 2026年2月時点において使っているコード
+│   ├── one_dcnn_transformer_encoder <- あまり良くない
+│   └── one_dcnn_transformer_encoder <- あまり良くない
 ├── IsolatedSignLanguage #孤立手話単語認識関連
 │   ├── cnn 未実装
 │   ├── conformer 未実装
