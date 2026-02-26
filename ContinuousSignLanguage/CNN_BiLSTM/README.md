@@ -46,7 +46,7 @@
 以下のディレクトリで実行してください:
 
 ```bash
-cd /path/to/ContinuousSignLanguage
+cd ContinuousSignLanguage
 ```
 
 ```bash
@@ -66,7 +66,7 @@ python -m CNN_BiLSTM.continuous_sign_language.modeling.train
 以下のディレクトリで実行してください:
 
 ```bash
-cd /path/to/ContinuousSignLanguage
+cd ContinuousSignLanguage
 ```
 
 ```bash
@@ -193,3 +193,4 @@ CNN_BiLSTM/
 ```
 
 ---
+
